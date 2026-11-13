@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.7 — 13 novembre 2026
+
+- Corrigé : la lecture pouvait rester bloquée sur certaines ouvertures (arcs de cercle avec un angle hors norme). Par sécurité, un élément qui bloque le calcul plus de 30 s est maintenant ignoré automatiquement et signalé, et la lecture reprend sans lui.
+
 ## 1.6 — 13 novembre 2026
 
 - Corrigé : une grosse maquette avec beaucoup d'ouvertures (dalles percées de trémies, murs-rideaux…) pouvait tourner plusieurs minutes. La lecture affiche maintenant son étape (lecture, indexation, ouvertures, éléments) et signale par leur nom les éléments très longs à calculer.
