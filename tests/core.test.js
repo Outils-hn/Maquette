@@ -99,3 +99,33 @@ test("triangulation d'un polygone a trou et soustraction de polygones convexes",
   const aire2 = pieces.reduce((s, P) => { let t = 0; for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length]; t += a[0] * b[1] - b[0] * a[1]; } return s + Math.abs(t) / 2; }, 0);
   assert.ok(Math.abs(aire2 - 12) < 1e-9);
 });
+
+test("export STEP : assemblage AP214 en mm, une piece par element, faces planes", () => {
+  const tout = IFC.step(M, M.produits.map((_, i) => i), { fichier: "t.stp", nom: "TinyHouse" });
+  const t = tout.texte;
+  assert.match(t, /^ISO-10303-21;/);
+  assert.match(t, /AUTOMOTIVE_DESIGN/);
+  assert.match(t, /SI_UNIT\(\.MILLI\.,\.METRE\.\)/);
+  assert.match(t, /END-ISO-10303-21;\s*$/);
+  assert.equal(tout.nbPieces, 71);
+  assert.equal((t.match(/=PRODUCT\(/g) || []).length, 72);
+  assert.equal((t.match(/NEXT_ASSEMBLY_USAGE_OCCURRENCE\(/g) || []).length, 71);
+  assert.ok((t.match(/=FACETED_BREP\(/g) || []).length >= 71);
+  // les references #n pointent toutes vers des entites definies
+  const def = new Set([...t.matchAll(/^#(\d+)=/gm)].map((m) => m[1]));
+  for (const m of t.matchAll(/#(\d+)/g)) assert.ok(def.has(m[1]), "#" + m[1]);
+  // un mur avec ses ouvertures : faces planes trouees plutot que des triangles
+  const i = M.produits.findIndex((p) => p.nom === "Wall_Left");
+  const w = IFC.step(M, [i]);
+  assert.equal(w.nbPieces, 1);
+  assert.ok(w.nbFaces < 100, String(w.nbFaces));
+  assert.ok(/FACE_BOUND\(/.test(w.texte));
+  // coordonnees en mm : le mur fait 10,5 m de long
+  const xs = [...w.texte.matchAll(/CARTESIAN_POINT\('',\(([-\d.E+]+),([-\d.E+]+),([-\d.E+]+)\)\)/g)].map((m) => [+m[1], +m[2], +m[3]]);
+  const ext = [0, 1, 2].map((k) => Math.max(...xs.map((p) => p[k])) - Math.min(...xs.map((p) => p[k])));
+  assert.ok(ext.some((e) => Math.abs(e - 10500) < 2), ext.join(" "));
+});
+
+test("export STEP : noms accentues encodes", () => {
+  assert.equal(IFC.stepStr("Façade d'été"), "'Fa\\X2\\00E7\\X0\\ade d''\\X2\\00E9\\X0\\t\\X2\\00E9\\X0\\'");
+});

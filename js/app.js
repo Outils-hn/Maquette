@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.0";
+import IFC from "./core.js?v=1.1";
 
-const VERSION = "1.0";
+const VERSION = "1.1";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -416,6 +416,37 @@ const RESERVEE_CONCEPTEUR = true;
   $("#bDxf").addEventListener("click", () => { preparerDxf(); dD.showModal(); });
   $("#dVus").addEventListener("change", preparerDxf);
   $("#dFermer").addEventListener("click", () => dD.close());
+  // ---------- Export STEP ----------
+  const dS = $("#dStep");
+  const choixStep = () => {
+    const q = (document.querySelector('#formStep input[name="quoi"]:checked') || {}).value;
+    return q === "sel" && etat.sel != null ? [etat.sel] : q === "tout" ? M.produits.map((_, i) => i) : M.produits.map((_, i) => i).filter(visible);
+  };
+  const nbEl = (n) => `(${n} élément${n > 1 ? "s" : ""})`;
+  function majStep() { const L = choixStep(); $("#sInfo").textContent = L.length ? `${L.length} pièce${L.length > 1 ? "s" : ""} à exporter` : "Rien à exporter : aucun élément affiché."; $("#sOk").disabled = !L.length; }
+  $("#bStep").addEventListener("click", () => {
+    if (!M) return;
+    const sel = etat.sel != null ? M.produits[etat.sel] : null;
+    const rSel = document.querySelector('#formStep input[value="sel"]');
+    rSel.disabled = !sel; $("#sSel").textContent = sel ? `: ${sel.nom}` : "(aucun)";
+    $("#sVis").textContent = nbEl(M.produits.filter((_, i) => visible(i)).length); $("#sTout").textContent = nbEl(M.produits.length);
+    document.querySelector(`#formStep input[value="${sel ? "sel" : "vis"}"]`).checked = true;
+    majStep(); dS.showModal();
+  });
+  $("#formStep").addEventListener("change", majStep);
+  $("#sAnnuler").addEventListener("click", () => dS.close());
+  $("#formStep").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const L = choixStep(); if (!L.length) return;
+    const base = nomFichier.replace(/\.ifc.*$/i, "");
+    const nom = `${base}${L.length === 1 ? "-" + M.produits[L[0]].nom.replace(/[^\w.-]+/g, "_") : L.length === M.produits.length ? "" : "-selection"}.stp`;
+    const r = IFC.step(M, L, { fichier: nom, nom: base });
+    const url = URL.createObjectURL(new Blob([r.texte], { type: "application/step" }));
+    const a = document.createElement("a"); a.href = url; a.download = nom; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    dS.close(); toast(`STEP exporté : ${r.nbPieces} pièce${r.nbPieces > 1 ? "s" : ""}, ${r.nbFaces.toLocaleString("fr-CH")} faces.`);
+  });
+
   // ZIP sans compression (le cadre claude.ai n'accepte pas l'extension .dxf, mais accepte .zip)
   function zipStore(nom, texte) {
     const data = new TextEncoder().encode(texte), name = new TextEncoder().encode(nom);
@@ -449,7 +480,7 @@ const RESERVEE_CONCEPTEUR = true;
   $("#bTout").addEventListener("click", () => { etat.isole = null; etat.cache.clear(); etat.caches.clear(); poserCoupe(null); arbre(); majOutils(); afficherProps(); vue("3d"); });
   function majOutils() { $("#bTout").classList.toggle("actif", !!etat.isole); }
   document.addEventListener("keydown", (e) => {
-    if (e.target.matches("input, textarea, select") || dD.open) return;
+    if (e.target.matches("input, textarea, select") || document.querySelector("dialog[open]")) return;
     if (e.key === "Escape") { if (etat.mesure) basculerMesure(false); else choisir(null); }
     if (!M || document.querySelector("dialog[open]")) return;
     if (e.key === "m" || e.key === "M") basculerMesure();
@@ -508,7 +539,7 @@ const RESERVEE_CONCEPTEUR = true;
     Object.assign(etat, { cache: new Set(), caches: new Set(), isole: null, sel: null, coupe: null, pts: [] });
     if (etat.mesure) basculerMesure(false);
     $("#axeCoupe").value = ""; $("#hauteur").disabled = true; $("#bDxf").disabled = true; $("#valCoupe").textContent = "—";
-    $("#accueil").hidden = true; $("#bCopier").disabled = false;
+    $("#accueil").hidden = true; $("#bCopier").disabled = false; $("#bStep").disabled = false;
     construire(); arbre(); onglet(ongletActif); afficherProps(); majOutils();
     $("#fichier").textContent = nom; document.title = `${nom} — Maquette`;
     $("#infos").textContent = `${m.schema}${m.logiciel ? ` · ${m.logiciel}` : ""} · ${m.produits.length} éléments · lu en ${ms < 1000 ? `${Math.max(1, Math.round(ms))} ms` : `${(ms / 1000).toFixed(1).replace(".", ",")} s`}`;
@@ -525,7 +556,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.0", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.1", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     w.onmessage = (e) => { w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier : ${e.data.err}`); };
     w.onerror = (e) => { e.preventDefault(); w.terminate(); direct(); };
     w.postMessage(texte);

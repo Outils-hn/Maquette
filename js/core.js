@@ -521,7 +521,153 @@ const IFC = (() => {
     return L.join("\r\n") + "\r\n";
   }
 
+
+  // Regroupe les triangles coplanaires et contigus en faces polygonales (contour + trous), pour un STEP propre dans les logiciels de CAO.
+  // Si le contour ne se referme pas proprement (sommets en T), les triangles de ce plan sont gardes tels quels.
+  function facesPlanes(tris) {
+    const cle3 = (q) => q.map((v) => Math.round(v * 1e5)).join(",");
+    const plans = new Map();
+    for (const t of tris) {
+      let n = norm(cross(sub(t[1], t[0]), sub(t[2], t[0]))); if (!isFinite(n[0])) continue;
+      const neg = n[0] < -1e-9 || (Math.abs(n[0]) <= 1e-9 && (n[1] < -1e-9 || (Math.abs(n[1]) <= 1e-9 && n[2] < 0)));
+      if (neg) n = n.map((v) => -v);
+      const d = dot(n, t[0]);
+      const k = `${n.map((v) => Math.round(v * 1e4)).join(",")}|${Math.round(d * 1e4)}`;
+      if (!plans.has(k)) plans.set(k, { n, tris: [] });
+      plans.get(k).tris.push(t);
+    }
+    const out = [];
+    for (const { n, tris: T } of plans.values()) {
+      if (T.length === 1) { out.push({ boucles: [T[0]] }); continue; }
+      const pts = new Map(), aretes = new Map();
+      for (const t of T) for (const q of t) pts.set(cle3(q), q);
+      const tous = [...pts.values()];
+      for (const t of T) for (let i = 0; i < 3; i++) {
+        // une arete est coupee aux sommets voisins poses dessus (jonctions en T des murs perces)
+        const a = t[i], b = t[(i + 1) % 3], ab = sub(b, a), L2 = dot(ab, ab);
+        const coupes = [0, 1];
+        for (const q of tous) { const aq = sub(q, a), k = dot(aq, ab) / L2; if (k > 1e-6 && k < 1 - 1e-6 && len(cross(aq, ab)) / Math.sqrt(L2) < 1e-6) coupes.push(k); }
+        coupes.sort((x, y) => x - y);
+        for (let j = 0; j < coupes.length - 1; j++) {
+          const p0 = [0, 1, 2].map((c) => a[c] + ab[c] * coupes[j]), p1 = [0, 1, 2].map((c) => a[c] + ab[c] * coupes[j + 1]);
+          const ka = cle3(p0), kb = cle3(p1); if (ka === kb) continue;
+          if (!pts.has(ka)) pts.set(ka, p0); if (!pts.has(kb)) pts.set(kb, p1);
+          const k = ka < kb ? ka + "|" + kb : kb + "|" + ka;
+          aretes.set(k, (aretes.get(k) || 0) + 1);
+        }
+      }
+      const bord = new Map(); let ok = true;
+      for (const [k, c] of aretes) if (c === 1) { const [a, b] = k.split("|"); for (const [x, y] of [[a, b], [b, a]]) { if (!bord.has(x)) bord.set(x, []); bord.get(x).push(y); } }
+      for (const v of bord.values()) if (v.length !== 2) ok = false;
+      if (!ok || !bord.size) { for (const t of T) out.push({ boucles: [t] }); continue; }
+      // chainer les aretes de bord en boucles
+      const vus = new Set(), boucles = [];
+      for (const depart of bord.keys()) {
+        if (vus.has(depart)) continue;
+        const B = [depart]; vus.add(depart); let prec = null, cur = depart, garde = 0;
+        while (garde++ < 100000) { const [x, y] = bord.get(cur); const suiv = x !== prec ? x : y; if (suiv === depart) break; if (vus.has(suiv)) { ok = false; break; } B.push(suiv); vus.add(suiv); prec = cur; cur = suiv; }
+        boucles.push(B.map((k) => pts.get(k)).filter((p, i, A) => { const a = A[(i + A.length - 1) % A.length], c = A[(i + 1) % A.length]; return len(cross(sub(p, a), sub(c, p))) > 1e-10; }));
+      }
+      if (!ok || boucles.some((B) => B.length < 3)) { for (const t of T) out.push({ boucles: [t] }); continue; }
+      // contours exterieurs et trous (un trou est contenu dans un autre contour)
+      const ax = Math.abs(n[0]) > Math.abs(n[1]) ? (Math.abs(n[0]) > Math.abs(n[2]) ? 0 : 2) : Math.abs(n[1]) > Math.abs(n[2]) ? 1 : 2;
+      const [u, v] = ax === 0 ? [1, 2] : ax === 1 ? [2, 0] : [0, 1];
+      const P2 = boucles.map((B) => B.map((p) => [p[u], p[v]]));
+      const aire = (P) => Math.abs(area2(P));
+      const dans = (q, P) => { let c = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const a = P[i], b = P[j]; if ((a[1] > q[1]) !== (b[1] > q[1]) && q[0] < ((b[0] - a[0]) * (q[1] - a[1])) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
+      const parent = P2.map((P, i) => { let best = -1; P2.forEach((Q, j) => { if (j !== i && aire(Q) > aire(P) && dans(P[0], Q) && (best < 0 || aire(Q) < aire(P2[best]))) best = j; }); return best; });
+      const profondeur = (i) => { let d = 0, x = parent[i]; while (x >= 0 && d < 50) { d++; x = parent[x]; } return d; };
+      boucles.forEach((B, i) => { if (profondeur(i) % 2 === 0) out.push({ boucles: [B, ...boucles.filter((_, j) => parent[j] === i && profondeur(j) % 2 === 1)] }); });
+    }
+    return out;
+  }
+
+  // ---------- Export STEP (AP214) : un solide a faces planes par forme, une piece par element, le tout en assemblage ----------
+  // Texte du STEP : caracteres hors ASCII codes en \X2\....\X0\ (lisible par tous les logiciels)
+  const stepStr = (t) => "'" + String(t ?? "").replace(/\\/g, "\\\\").replace(/'/g, "''").replace(/[^\x20-\x7e]+/g, (m) => "\\X2\\" + [...m].map((c) => c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")).join("") + "\\X0\\") + "'";
+  function step(model, indices, opts = {}) {
+    const L = []; let n = 0;
+    const e = (txt) => { n++; L.push(`#${n}=${txt};`); return n; };
+    const num = (v) => { const r = Math.round(v * 1e4) / 1e4; return Number.isInteger(r) ? r.toFixed(1) : String(r); };
+    const ctx = e("APPLICATION_CONTEXT('automotive design')");
+    e(`APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2000,#${ctx})`);
+    const uL = e("(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.))");
+    const uA = e("(NAMED_UNIT(*)PLANE_ANGLE_UNIT()SI_UNIT($,.RADIAN.))");
+    const uS = e("(NAMED_UNIT(*)SI_UNIT($,.STERADIAN.)SOLID_ANGLE_UNIT())");
+    const unc = e(`UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-02),#${uL},'distance_accuracy_value','')`);
+    const gctx = e(`(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#${unc}))GLOBAL_UNIT_ASSIGNED_CONTEXT((#${uL},#${uA},#${uS}))REPRESENTATION_CONTEXT('Maquette','3D'))`);
+    const pctx = e(`PRODUCT_CONTEXT('',#${ctx},'mechanical')`);
+    const pdctx = e(`PRODUCT_DEFINITION_CONTEXT('part definition',#${ctx},'design')`);
+    const o = e("CARTESIAN_POINT('',(0.,0.,0.))"), dz = e("DIRECTION('',(0.,0.,1.))"), dx = e("DIRECTION('',(1.,0.,0.))");
+    const axe = () => e(`AXIS2_PLACEMENT_3D('',#${o},#${dz},#${dx})`);
+    function produit(nom) {
+      const p = e(`PRODUCT(${stepStr(nom)},${stepStr(nom)},'',(#${pctx}))`);
+      e(`PRODUCT_RELATED_PRODUCT_CATEGORY('part',$,(#${p}))`);
+      const f = e(`PRODUCT_DEFINITION_FORMATION('','',#${p})`);
+      const d = e(`PRODUCT_DEFINITION('design','',#${f},#${pdctx})`);
+      const s = e(`PRODUCT_DEFINITION_SHAPE('','',#${d})`);
+      return { d, s };
+    }
+    // Assemblage racine
+    const racine = produit(opts.nom || model.projet || "Maquette");
+    const axR = axe();
+    const srR = e(`SHAPE_REPRESENTATION('',(#${axR}),#${gctx})`);
+    e(`SHAPE_DEFINITION_REPRESENTATION(#${racine.s},#${srR})`);
+    let nbPieces = 0, nbFaces = 0;
+    indices.forEach((pi, k) => {
+      const p = model.produits[pi];
+      // une forme fermee par element de geometrie IFC (src) : cadre et vitre restent deux solides
+      const groupes = new Map();
+      for (const m of p.morceaux) { if (!groupes.has(m.src)) groupes.set(m.src, []); groupes.get(m.src).push(...m.tris); }
+      const breps = [];
+      for (const tris of groupes.values()) {
+        const pts = new Map(), faces = [];
+        const pt = (q) => { const c = q.map((v) => num(v * 1000)).join(","); if (!pts.has(c)) pts.set(c, e(`CARTESIAN_POINT('',(${c}))`)); return pts.get(c); };
+        for (const f of facesPlanes(tris)) {
+          const bounds = [];
+          f.boucles.forEach((B, i) => {
+            const ids = B.map(pt); if (new Set(ids).size < 3) return;
+            const loop = e(`POLY_LOOP('',(${ids.map((x) => "#" + x).join(",")}))`);
+            bounds.push(e(`${i === 0 ? "FACE_OUTER_BOUND" : "FACE_BOUND"}('',#${loop},.T.)`));
+          });
+          if (bounds.length) faces.push(e(`FACE_SURFACE('',(${bounds.map((x) => "#" + x).join(",")}),#${plan(f.boucles[0])},.T.)`));
+        }
+        if (!faces.length) continue;
+        nbFaces += faces.length;
+        const sh = e(`CLOSED_SHELL('',(${faces.map((i) => "#" + i).join(",")}))`);
+        breps.push(e(`FACETED_BREP(${stepStr(p.nom)},#${sh})`));
+      }
+      if (!breps.length) return;
+      const pr = produit(p.nom);
+      const ax = axe();
+      const sr = e(`FACETED_BREP_SHAPE_REPRESENTATION(${stepStr(p.nom)},(${[...breps, ax].map((i) => "#" + i).join(",")}),#${gctx})`);
+      e(`SHAPE_DEFINITION_REPRESENTATION(#${pr.s},#${sr})`);
+      const nauo = e(`NEXT_ASSEMBLY_USAGE_OCCURRENCE('${k + 1}',${stepStr(p.nom)},'',#${racine.d},#${pr.d},$)`);
+      const pds = e(`PRODUCT_DEFINITION_SHAPE('','',#${nauo})`);
+      const idt = e(`ITEM_DEFINED_TRANSFORMATION('','',#${axR},#${ax})`);
+      const rr = e(`(REPRESENTATION_RELATIONSHIP('','',#${sr},#${srR})REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#${idt})SHAPE_REPRESENTATION_RELATIONSHIP())`);
+      e(`CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#${rr},#${pds})`);
+      nbPieces++;
+    });
+    // Plan porteur d'une face (point + normale de Newell, robuste pour un polygone)
+    function plan(t) {
+      const a = t[0], u = [t[1][0] - a[0], t[1][1] - a[1], t[1][2] - a[2]];
+      const nw = [0, 0, 0]; for (let i = 0; i < t.length; i++) { const p = t[i], q = t[(i + 1) % t.length]; nw[0] += (p[1] - q[1]) * (p[2] + q[2]); nw[1] += (p[2] - q[2]) * (p[0] + q[0]); nw[2] += (p[0] - q[0]) * (p[1] + q[1]); }
+      let nn = norm(nw); if (!isFinite(nn[0])) nn = [0, 0, 1];
+      let rx = norm(u); if (!isFinite(rx[0])) rx = Math.abs(nn[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+      const c = e(`CARTESIAN_POINT('',(${a.map((x) => num(x * 1000)).join(",")}))`);
+      const d1 = e(`DIRECTION('',(${nn.map(num).join(",")}))`), d2 = e(`DIRECTION('',(${rx.map(num).join(",")}))`);
+      return e(`PLANE('',#${e(`AXIS2_PLACEMENT_3D('',#${c},#${d1},#${d2})`)})`);
+    }
+    const date = (opts.date || new Date().toISOString()).slice(0, 19);
+    const nomFichier = (opts.fichier || "maquette.stp").replace(/'/g, "");
+    const texte = ["ISO-10303-21;", "HEADER;", "FILE_DESCRIPTION(('Export Maquette (facettes)'),'2;1');",
+      `FILE_NAME(${stepStr(nomFichier)},'${date}',(''),(''),'Maquette','Maquette','');`,
+      "FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));", "ENDSEC;", "DATA;", ...L, "ENDSEC;", "END-ISO-10303-21;", ""].join("\n");
+    return { texte, nbPieces, nbFaces };
+  }
+
   const couleurType = (ifc) => COULEURS[ifc] || [0.62, 0.64, 0.66];
-  return { build, bbox, triangulate, subtractConvex, hull, couper, dxf, calqueDe, CALQUES, couleurType, VERRE };
+  return { build, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, calqueDe, CALQUES, couleurType, VERRE };
 })();
 export default IFC;
