@@ -216,7 +216,7 @@ test("mur en onglet (trapeze) : l'ouverture est decoupee et la surface nette cal
 test("profil a arc (IFCINDEXEDPOLYCURVE) dessine, sans avertissement", () => {
   const m = IFC.build(VRAI);
   const p = m.produits.find((x) => x.nom === "Plaque arrondie");
-  assert.ok(p && p.morceaux[0].tris.length > 10);
+  assert.ok(p && IFC.trisDe(p.morceaux[0]).length > 10);
   assert.ok(!m.avertissements.some((a) => /non dessin/.test(a)), m.avertissements.join(" | "));
   // l'arc passe par (500, 1000) : le haut de la plaque est a 1 m
   assert.ok(Math.abs(p.bb.max[1] - 4) < 1e-6, JSON.stringify(p.bb));
@@ -235,4 +235,35 @@ test("enveloppe convexe 3D d'un cube", () => {
   const P = []; for (const x of [0, 1]) for (const y of [0, 1]) for (const z of [0, 1]) P.push([x, y, z]);
   P.push([0.5, 0.5, 0.5]);
   assert.equal(IFC.enveloppe3D(P).length, 12);
+});
+
+// Petite archive ZIP (une entree compressee) fabriquee a la main
+import { deflateRawSync } from "node:zlib";
+function zipUn(nom, contenu) {
+  const data = Buffer.from(contenu), comp = deflateRawSync(data), n = Buffer.from(nom);
+  const loc = Buffer.alloc(30); loc.writeUInt32LE(0x04034b50, 0); loc.writeUInt16LE(20, 4); loc.writeUInt16LE(8, 8); loc.writeUInt32LE(comp.length, 18); loc.writeUInt32LE(data.length, 22); loc.writeUInt16LE(n.length, 26);
+  const cen = Buffer.alloc(46); cen.writeUInt32LE(0x02014b50, 0); cen.writeUInt16LE(20, 6); cen.writeUInt16LE(8, 10); cen.writeUInt32LE(comp.length, 20); cen.writeUInt32LE(data.length, 24); cen.writeUInt16LE(n.length, 28); cen.writeUInt32LE(0, 42);
+  const off = 30 + n.length + comp.length;
+  const fin = Buffer.alloc(22); fin.writeUInt32LE(0x06054b50, 0); fin.writeUInt16LE(1, 8); fin.writeUInt16LE(1, 10); fin.writeUInt32LE(46 + n.length, 12); fin.writeUInt32LE(off, 16);
+  return Buffer.concat([loc, n, comp, cen, n, fin]);
+}
+
+test(".ifczip : le .ifc de l'archive est decompresse et lu", async () => {
+  const txt = readFileSync(new URL("../exemples/TinyHouse.ifc", import.meta.url), "utf8");
+  const t = await IFC.texteIFC(new Blob([zipUn("maquette.ifc", txt)]));
+  assert.equal(t.length, txt.length);
+  assert.equal(IFC.build(t).produits.length, 71);
+  // un .ifc normal passe tel quel
+  assert.equal((await IFC.texteIFC(new Blob([txt]))).length, txt.length);
+  await assert.rejects(IFC.texteIFC(new Blob([zipUn("lisezmoi.txt", "x")])), /aucun fichier \.ifc/);
+});
+
+test("geometrie compacte : simple precision relative, sans perte au 1/100 mm loin de l'origine", () => {
+  const ifc = VRAI.replace("#10=IFCCARTESIANPOINT((0.,0.,0.));", "#10=IFCCARTESIANPOINT((2600000000.,1200000000.,0.));");
+  const m = IFC.build(ifc);
+  const w = m.produits.find((p) => p.nom === "Mur onglet");
+  assert.ok(w.morceaux[0].T instanceof Float32Array);
+  const xs = IFC.trisDe(w.morceaux[0]).flat().map((p) => p[0]);
+  // coordonnees suisses (2 600 000 m) : la longueur du mur reste exacte
+  assert.ok(Math.abs(Math.max(...xs) - Math.min(...xs) - 5) < 1e-5, String(Math.max(...xs) - Math.min(...xs)));
 });

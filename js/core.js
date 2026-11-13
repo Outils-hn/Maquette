@@ -35,17 +35,39 @@ const IFC = (() => {
     }
     return [out, i];
   }
+  // Lecture paresseuse : un index (position de chaque entite dans le texte, type) ; les arguments sont
+  // decodes a la demande. Un fichier de plusieurs centaines de Mo tient ainsi en memoire.
+  const TYPES_RESSOURCE = /^IFC(CARTESIANPOINT|DIRECTION|AXIS2PLACEMENT|LOCALPLACEMENT|POLYLOOP|FACE|POLYLINE|SHAPEREPRESENTATION|PRODUCTDEFINITIONSHAPE|REL[A-Z]|PROPERTY|QUANTITY|ELEMENTQUANTITY|STYLEDITEM|PRESENTATION|SURFACESTYLE|COLOUR|INDEXEDPOLYGONALFACE|CARTESIANPOINTLIST|TRIANGULATEDFACESET|POLYGONALFACESET|CLOSEDSHELL|OPENSHELL|FACETEDBREP|EXTRUDEDAREASOLID|MAPPEDITEM|REPRESENTATIONMAP|CARTESIANTRANSFORMATION|VECTOR|LINE$|CIRCLE$|TRIMMEDCURVE|COMPOSITECURVE|BOOLEAN|HALFSPACE|POLYGONALBOUNDED|PLANE$|.*PROFILEDEF$|OWNERHISTORY|MATERIAL|COMPLEXPROPERTY|SIUNIT|DERIVEDUNIT|MEASUREWITHUNIT|DIMENSIONALEXPONENTS)/;
   function parse(text) {
-    const ents = new Map();
     const d = text.indexOf("DATA;");
-    const re = /#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(/gi;
+    const re = /#(\d+)\s*=\s*([A-Za-z0-9_]+)\s*\(/g;
     re.lastIndex = d < 0 ? 0 : d;
+    let ids = [], offs = [], typs = [];
+    const codes = new Map(), noms = [];
     let m;
     while ((m = re.exec(text))) {
-      const [args, end] = parseArgs(text, re.lastIndex - 1);
-      ents.set(+m[1], { id: +m[1], type: m[2].toUpperCase(), a: args });
-      re.lastIndex = end;
+      const t = m[2].toUpperCase(); let c = codes.get(t); if (c === undefined) { c = noms.length; codes.set(t, c); noms.push(t); }
+      ids.push(+m[1]); offs.push(re.lastIndex - 1); typs.push(c);
+      // fin de l'entite : le ';' hors des chaines de caracteres
+      let i = re.lastIndex, q = false;
+      for (; i < text.length; i++) { const ch = text.charCodeAt(i); if (ch === 39) q = !q; else if (ch === 59 && !q) break; }
+      re.lastIndex = i + 1;
     }
+    const maxId = ids.reduce((a, b) => (b > a ? b : a), 0);
+    const parId = maxId < 6e7, off = parId ? new Int32Array(maxId + 1).fill(-1) : new Map(), typ = parId ? new Uint16Array(maxId + 1) : new Map();
+    for (let n = 0; n < ids.length; n++) { if (parId) { off[ids[n]] = offs[n]; typ[ids[n]] = typs[n]; } else { off.set(ids[n], offs[n]); typ.set(ids[n], typs[n]); } }
+    const ordre = Int32Array.from(ids), typeDe = Uint16Array.from(typs); ids = offs = typs = null;
+    const cache = new Map();
+    const decode = (id) => { const o = parId ? (id < off.length ? off[id] : -1) : off.get(id) ?? -1; if (o < 0) return undefined; return { id, type: noms[parId ? typ[id] : typ.get(id)], a: parseArgs(text, o)[0] }; };
+    const ents = {
+      size: ordre.length,
+      get(id) { let e = cache.get(id); if (e) return e; e = decode(id); if (!e) return undefined; if (cache.size > 250000) cache.clear(); cache.set(id, e); return e; },
+      // entites des types demandes, dans l'ordre du fichier
+      *deType(...types) { const ok = new Set(types.map((t) => codes.get(t)).filter((c) => c !== undefined)); if (!ok.size) return; for (let n = 0; n < ordre.length; n++) if (ok.has(typeDe[n])) yield this.get(ordre[n]); },
+      // candidats « produits » : tout sauf les types de ressources (points, faces, relations...)
+      pos: 0,
+      *candidats() { const ok = noms.map((t) => !TYPES_RESSOURCE.test(t)); for (let n = 0; n < ordre.length; n++) if (ok[typeDe[n]]) { this.pos = n; yield decode(ordre[n]); } },
+    };
     const schema = (text.match(/FILE_SCHEMA\s*\(\s*\(\s*'([^']+)'/i) || [])[1] || "?";
     return { ents, schema };
   }
@@ -127,7 +149,7 @@ const IFC = (() => {
       return f.concat(b);
     }
     clipTo(bsp) { const pile = [this]; while (pile.length) { const n = pile.pop(); n.polys = bsp.clipPolys(n.polys); if (n.f) pile.push(n.f); if (n.b) pile.push(n.b); } }
-    tous() { const out = [], pile = [this]; while (pile.length) { const n = pile.pop(); out.push(...n.polys); if (n.f) pile.push(n.f); if (n.b) pile.push(n.b); } return out; }
+    tous() { const out = [], pile = [this]; while (pile.length) { const n = pile.pop(); for (const x of n.polys) out.push(x); if (n.f) pile.push(n.f); if (n.b) pile.push(n.b); } return out; }
     build(polys) {
       const pile = [[this, polys]];
       while (pile.length) {
@@ -210,7 +232,7 @@ const IFC = (() => {
   function triangulate(outer, holes = []) {
     let P = outer.slice(); if (P.length < 3) return []; if (area2(P) < 0) P.reverse();
     holes = holes.filter((h) => h && h.length >= 3);
-    for (const h0 of holes.slice().sort((a, b) => Math.max(...b.map((q) => q[0])) - Math.max(...a.map((q) => q[0])))) {
+    for (const h0 of holes.slice().sort((a, b) => maxDe(b.map((q) => q[0])) - maxDe(a.map((q) => q[0])))) {
       let h = h0.slice(); if (area2(h) > 0) h.reverse();
       let hi = 0; h.forEach((q, i) => { if (q[0] > h[hi][0]) hi = i; });
       const m = h[hi]; let best = -1, bd = Infinity;
@@ -219,22 +241,31 @@ const IFC = (() => {
       const hr = h.slice(hi).concat(h.slice(0, hi + 1));
       P = P.slice(0, best + 1).concat(hr, [P[best]], P.slice(best + 1));
     }
-    const idx = P.map((_, i) => i), tris = [];
-    let guard = 0;
-    while (idx.length > 3 && guard++ < 10000) {
-      let found = false;
-      for (let k = 0; k < idx.length; k++) {
-        const i0 = idx[(k + idx.length - 1) % idx.length], i1 = idx[k], i2 = idx[(k + 1) % idx.length];
-        const a = P[i0], b = P[i1], c = P[i2];
-        if ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) <= 1e-14) continue;
-        let ok = true;
-        for (const j of idx) { if (j === i0 || j === i1 || j === i2) continue; const q = P[j]; if ((q[0] === a[0] && q[1] === a[1]) || (q[0] === b[0] && q[1] === b[1]) || (q[0] === c[0] && q[1] === c[1])) continue; if (insideConvex([a, b, c], q, 1e-12)) { ok = false; break; } }
-        if (!ok) continue;
-        tris.push([a, b, c]); idx.splice(k, 1); found = true; break;
-      }
-      if (!found) break;
+    const n = P.length, tris = [];
+    const cr = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    // polygone convexe sans trou : simple eventail (le cas de la grande majorite des faces)
+    if (!holes.length) { let convexe = true; for (let i = 0; i < n && convexe; i++) if (cr(P[(i + n - 1) % n], P[i], P[(i + 1) % n]) < -1e-14) convexe = false; if (convexe) { const Q = P.filter((q, i) => Math.abs(cr(P[(i + n - 1) % n], q, P[(i + 1) % n])) > 1e-14); for (let i = 1; i < Q.length - 1; i++) tris.push([Q[0], Q[i], Q[i + 1]]); return tris; } }
+    // oreilles avec liste chainee ; seuls les sommets rentrants peuvent gener une oreille
+    const prv = new Int32Array(n), nxt = new Int32Array(n);
+    for (let i = 0; i < n; i++) { prv[i] = (i + n - 1) % n; nxt[i] = (i + 1) % n; }
+    const convexeEn = (i) => cr(P[prv[i]], P[i], P[nxt[i]]) > 1e-14;
+    const rentrants = new Set(); for (let i = 0; i < n; i++) if (!convexeEn(i)) rentrants.add(i);
+    const meme = (q, r) => q[0] === r[0] && q[1] === r[1];
+    let reste = n, i = 0, cale = 0;
+    while (reste > 3 && cale <= reste) {
+      const a = prv[i], c = nxt[i];
+      let ok = convexeEn(i);
+      if (ok) { const A = P[a], B = P[i], C = P[c]; for (const j of rentrants) { if (j === a || j === i || j === c) continue; const q = P[j]; if (meme(q, A) || meme(q, B) || meme(q, C)) continue; if (insideConvex([A, B, C], q, 1e-12)) { ok = false; break; }
+          // sommet pose pile sur la diagonale A-C : l'oreille couperait le polygone
+          const dx = C[0] - A[0], dy = C[1] - A[1], L2 = dx * dx + dy * dy, t = ((q[0] - A[0]) * dx + (q[1] - A[1]) * dy) / L2;
+          if (t > 1e-9 && t < 1 - 1e-9 && Math.abs(cr(A, C, q)) <= 1e-12 * Math.max(1, L2)) { ok = false; break; } } }
+      if (ok) {
+        tris.push([P[a], P[i], P[c]]); nxt[a] = c; prv[c] = a; rentrants.delete(i); reste--;
+        if (rentrants.has(a) && convexeEn(a)) rentrants.delete(a); if (rentrants.has(c) && convexeEn(c)) rentrants.delete(c);
+        i = a; cale = 0;
+      } else { i = nxt[i]; cale++; }
     }
-    if (idx.length === 3) tris.push(idx.map((i) => P[i]));
+    if (reste === 3) tris.push([P[prv[i]], P[i], P[nxt[i]]]);
     return tris;
   }
   function segCrosses(p, q, A, B) {
@@ -270,7 +301,8 @@ const IFC = (() => {
   const COURBES = new Set(["IFCPOLYLINE", "IFCINDEXEDPOLYCURVE", "IFCCOMPOSITECURVE", "IFCTRIMMEDCURVE", "IFCCIRCLE", "IFCLINE", "IFCELLIPSE", "IFCBSPLINECURVEWITHKNOTS", "IFCGEOMETRICCURVESET", "IFCGEOMETRICSET", "IFCCARTESIANPOINT", "IFCTEXTLITERAL", "IFCTEXTLITERALWITHEXTENT", "IFCANNOTATIONFILLAREA", "IFCPOINT"]);
   const PAS_DESSINES = new Set(["IFCOPENINGELEMENT", "IFCSPACE", "IFCSITE", "IFCBUILDING", "IFCBUILDINGSTOREY", "IFCANNOTATION", "IFCGRID", "IFCVIRTUALELEMENT", "IFCPROJECT"]);
 
-  function build(text) {
+  function build(text, prog) {
+    let nbProd = 0;
     const { ents, schema } = parse(text);
     const E = (r) => (r && r.r != null ? ents.get(r.r) : null);
     const num = (v) => (v == null ? null : typeof v === "number" ? v : v.v != null ? v.v : null);
@@ -285,10 +317,10 @@ const IFC = (() => {
       if (e.type === "IFCCONVERSIONBASEDUNIT" && str(e.a[1]) === "LENGTHUNIT") { const n = str(e.a[2]); return /FOOT|FEET/i.test(n) ? 0.3048 : /INCH/i.test(n) ? 0.0254 : null; }
       return null;
     };
-    const assign = [...ents.values()].find((e) => e.type === "IFCUNITASSIGNMENT");
+    const assign = ents.deType("IFCUNITASSIGNMENT").next().value;
     const choisi = assign ? (assign.a[0] || []).map((r) => facteur(E(r))).find((f) => f != null) : null;
     if (choisi != null) k = choisi;
-    else for (const e of ents.values()) { const f = facteur(e); if (f != null) { k = f; break; } }
+    else for (const e of ents.deType("IFCSIUNIT", "IFCCONVERSIONBASEDUNIT")) { const f = facteur(e); if (f != null) { k = f; break; } }
     // Unite d'angle (les parametres des arcs de cercle en dependent)
     let kAng = 1;
     if (assign) for (const r of assign.a[0] || []) { const u = E(r); if (u && u.type === "IFCCONVERSIONBASEDUNIT" && str(u.a[1]) === "PLANEANGLEUNIT" && /DEG/i.test(str(u.a[2]))) kAng = Math.PI / 180; }
@@ -321,16 +353,16 @@ const IFC = (() => {
       if (e.type === "IFCSURFACESTYLERENDERING" || e.type === "IFCSURFACESTYLESHADING") { const c = E(e.a[0]); if (c) return { rgb: [c.a[1], c.a[2], c.a[3]], alpha: 1 - (num(e.a[1]) || 0) }; }
       return null;
     }
-    for (const e of ents.values()) if (e.type === "IFCSTYLEDITEM" && e.a[0]) { for (const s of e.a[1] || []) { const c = couleurStyle(s); if (c) { couleurItem.set(e.a[0].r, c); break; } } }
+    for (const e of ents.deType("IFCSTYLEDITEM")) if (e.a[0]) { for (const s of e.a[1] || []) { const c = couleurStyle(s); if (c) { couleurItem.set(e.a[0].r, c); break; } } }
     const couleurMat = new Map();
-    for (const e of ents.values()) if (e.type === "IFCMATERIALDEFINITIONREPRESENTATION") {
+    for (const e of ents.deType("IFCMATERIALDEFINITIONREPRESENTATION")) {
       for (const rr of e.a[2] || []) { const sr = E(rr); for (const it of (sr && sr.a[3]) || []) { const si = E(it); if (si) for (const s of si.a[1] || []) { const c = couleurStyle(s); if (c && !couleurMat.has(e.a[3].r)) couleurMat.set(e.a[3].r, c); } } }
     }
 
     // Relations
     const etageDe = new Map(), materiauDe = new Map(), psetsDe = new Map(), ouverturesDe = new Map(), murDeOuverture = new Map(), remplit = new Map(), parentDe = new Map();
     const etages = [];
-    for (const e of ents.values()) {
+    for (const e of ents.deType("IFCBUILDINGSTOREY", "IFCRELCONTAINEDINSPATIALSTRUCTURE", "IFCRELAGGREGATES", "IFCRELVOIDSELEMENT", "IFCRELFILLSELEMENT", "IFCRELASSOCIATESMATERIAL", "IFCRELDEFINESBYPROPERTIES")) {
       if (e.type === "IFCBUILDINGSTOREY") etages.push({ id: e.id, nom: str(e.a[2]) || "Étage", elev: (num(e.a[9]) || 0) * k });
       else if (e.type === "IFCRELCONTAINEDINSPATIALSTRUCTURE") for (const r of e.a[4] || []) etageDe.set(r.r, e.a[5].r);
       else if (e.type === "IFCRELAGGREGATES") for (const r of e.a[5] || []) parentDe.set(r.r, e.a[4].r);
@@ -388,6 +420,7 @@ const IFC = (() => {
       }
       else if (T === "IFCCSGSOLID") itemGeom(e.a[0], M, out, c);
       else if (T === "IFCREVOLVEDAREASOLID") revolution(e, M, out, c);
+      else if (T === "IFCSWEPTDISKSOLID" || T === "IFCSWEPTDISKSOLIDPOLYGONAL") tube(e, M, out, c);
       else if (!COURBES.has(T)) avertissements.add("Forme non dessinée : " + T);
     }
     // Demi-espace d'une soustraction : plan (origine, normale vers la matiere gardee), borne eventuelle
@@ -425,7 +458,7 @@ const IFC = (() => {
       const pl = E(e.a[0]); const P = ((pl && pl.a[0]) || []).map((q) => tp(M, [q[0] * k, q[1] * k, (q[2] || 0) * k]));
       const tris = [], ar = [];
       if (e.type === "IFCTRIANGULATEDFACESET") { for (const t of e.a[3] || []) { const tri = t.map((i) => P[i - 1]); tris.push(tri); } }
-      else for (const fr of e.a[2] || []) { const f = E(fr); if (!f) continue; const L = (f.a[0] || []).map((i) => P[i - 1]); const H = f.type === "IFCINDEXEDPOLYGONALFACEWITHVOIDS" ? (f.a[1] || []).map((h) => h.map((i) => P[i - 1])) : []; tris.push(...triangulate3D(L, H)); [L, ...H].forEach((Q) => Q.forEach((p, i) => ar.push([p, Q[(i + 1) % Q.length]]))); }
+      else for (const fr of e.a[2] || []) { const f = E(fr); if (!f) continue; const L = (f.a[0] || []).map((i) => P[i - 1]); const H = f.type === "IFCINDEXEDPOLYGONALFACEWITHVOIDS" ? (f.a[1] || []).map((h) => h.map((i) => P[i - 1])) : []; for (const t of triangulate3D(L, H)) tris.push(t); [L, ...H].forEach((Q) => Q.forEach((p, i) => ar.push([p, Q[(i + 1) % Q.length]]))); }
       out.push({ tris, aretes: ar, couleur: c, src: e.id });
     }
     function profil(r) {
@@ -483,40 +516,68 @@ const IFC = (() => {
       const n = Math.max(2, Math.ceil(Math.abs(sw) / (Math.PI / 16)));
       return [...Array(n + 1)].map((_, i) => (i === 0 ? a : i === n ? c : [ox + R * Math.cos(t0 + (sw * i) / n), oy + R * Math.sin(t0 + (sw * i) / n)]));
     }
-    function courbe2D(r, ferme = true) {
+    function arc3D(a, b, c) {
+      // cercle passant par trois points de l'espace : calcul dans leur plan
+      const u = sub(b, a), v = sub(c, a), n = cross(u, v); if (len(n) < 1e-14) return [a, b, c];
+      const x = norm(u), y = norm(cross(n, x));
+      const to2 = (p) => { const d = sub(p, a); return [dot(d, x), dot(d, y)]; };
+      return arc3(to2(a), to2(b), to2(c)).map((q) => [a[0] + x[0] * q[0] + y[0] * q[1], a[1] + x[1] * q[0] + y[1] * q[1], a[2] + x[2] * q[0] + y[2] * q[1]]);
+    }
+    function courbe3D(r, ferme = true) {
       const e = E(r); if (!e) return [];
-      const L = [], push = (C) => { for (const q of C) { const l = L[L.length - 1]; if (!l || Math.hypot(l[0] - q[0], l[1] - q[1]) > 1e-9) L.push(q); } };
+      const L = [], push = (C) => { for (const q of C) { const l = L[L.length - 1]; if (!l || Math.hypot(l[0] - q[0], l[1] - q[1], l[2] - q[2]) > 1e-9) L.push(q); } };
       const T = e.type;
-      if (T === "IFCPOLYLINE") push((e.a[0] || []).map((p) => { const q = pt(p); return [q[0], q[1]]; }));
+      if (T === "IFCPOLYLINE") push((e.a[0] || []).map((p) => pt(p)));
       else if (T === "IFCINDEXEDPOLYCURVE") {
-        const pl = E(e.a[0]); const P = ((pl && pl.a[0]) || []).map((q) => [q[0] * k, q[1] * k]);
+        const pl = E(e.a[0]); const P = ((pl && pl.a[0]) || []).map((q) => [q[0] * k, q[1] * k, (q[2] || 0) * k]);
         if (!Array.isArray(e.a[1]) || !e.a[1].length) push(P);
-        else for (const sg of e.a[1]) { const ix = (Array.isArray(sg.v) ? sg.v : []).map((i) => P[i - 1]).filter(Boolean); push(sg.t === "IFCARCINDEX" && ix.length === 3 ? arc3(ix[0], ix[1], ix[2]) : ix); }
+        else for (const sg of e.a[1]) { const ix = (Array.isArray(sg.v) ? sg.v : []).map((i) => P[i - 1]).filter(Boolean); push(sg.t === "IFCARCINDEX" && ix.length === 3 ? arc3D(ix[0], ix[1], ix[2]) : ix); }
       }
-      else if (T === "IFCCOMPOSITECURVE") for (const sr of e.a[0] || []) { const sg = E(sr); if (!sg) continue; let C = courbe2D(sg.a[2], false); if (str(sg.a[1]) === "F") C = C.slice().reverse(); push(C); }
+      else if (T === "IFCCOMPOSITECURVE") for (const sr of e.a[0] || []) { const sg = E(sr); if (!sg) continue; let C = courbe3D(sg.a[2], false); if (str(sg.a[1]) === "F") C = C.slice().reverse(); push(C); }
       else if (T === "IFCTRIMMEDCURVE") push(courbeTronquee(e));
-      else if (T === "IFCCIRCLE" || T === "IFCELLIPSE") { const Mc = placement3D(e.a[0]), a = num(e.a[1]) * k, b = T === "IFCELLIPSE" ? num(e.a[2]) * k : a; push([...Array(32)].map((_, i) => { const p = tp(Mc, [a * Math.cos((i * Math.PI) / 16), b * Math.sin((i * Math.PI) / 16), 0]); return [p[0], p[1]]; })); }
+      else if (T === "IFCCIRCLE" || T === "IFCELLIPSE") { const Mc = placement3D(e.a[0]), a = num(e.a[1]) * k, b = T === "IFCELLIPSE" ? num(e.a[2]) * k : a; push([...Array(32)].map((_, i) => tp(Mc, [a * Math.cos((i * Math.PI) / 16), b * Math.sin((i * Math.PI) / 16), 0]))); }
       else avertissements.add("Courbe non dessinée : " + T);
-      if (ferme && L.length > 1 && Math.hypot(L[0][0] - L[L.length - 1][0], L[0][1] - L[L.length - 1][1]) < 1e-9) L.pop();
+      if (ferme && L.length > 1 && Math.hypot(L[0][0] - L[L.length - 1][0], L[0][1] - L[L.length - 1][1], L[0][2] - L[L.length - 1][2]) < 1e-9) L.pop();
       return L;
     }
+    const courbe2D = (r, ferme = true) => courbe3D(r, ferme).map((p) => [p[0], p[1]]);
     function courbeTronquee(e) {
       const B = E(e.a[0]); if (!B) return [];
       const sens = str(e.a[3]) !== "F", cart = str(e.a[4]) === "CARTESIAN";
-      const lire = (lst) => { let c = null, t = null; for (const x of lst || []) { if (x && x.t === "IFCPARAMETERVALUE") t = num(x.v); else { const q = E(x); if (q && q.type === "IFCCARTESIANPOINT") { const p = pt(x); c = [p[0], p[1]]; } } } return { c, t }; };
+      const lire = (lst) => { let c = null, t = null; for (const x of lst || []) { if (x && x.t === "IFCPARAMETERVALUE") t = num(x.v); else { const q = E(x); if (q && q.type === "IFCCARTESIANPOINT") c = pt(x); } } return { c, t }; };
       const t1 = lire(e.a[1]), t2 = lire(e.a[2]);
-      if (B.type === "IFCLINE") { const o = pt(B.a[0]), vv = E(B.a[1]), d = vv ? dir(vv.a[0], [1, 0, 0]).map((x) => x * (num(vv.a[1]) || 1) * k) : [1, 0, 0]; const at = (t) => [o[0] + d[0] * t, o[1] + d[1] * t]; return [t1.c && (cart || t1.t == null) ? t1.c : at(t1.t || 0), t2.c && (cart || t2.t == null) ? t2.c : at(t2.t || 0)]; }
+      if (B.type === "IFCLINE") { const o = pt(B.a[0]), vv = E(B.a[1]), d = vv ? dir(vv.a[0], [1, 0, 0]).map((x) => x * (num(vv.a[1]) || 1) * k) : [1, 0, 0]; const at = (t) => [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t]; return [t1.c && (cart || t1.t == null) ? t1.c : at(t1.t || 0), t2.c && (cart || t2.t == null) ? t2.c : at(t2.t || 0)]; }
       if (B.type === "IFCCIRCLE" || B.type === "IFCELLIPSE") {
         const Mc = placement3D(B.a[0]), a = num(B.a[1]) * k, b = B.type === "IFCELLIPSE" ? num(B.a[2]) * k : a;
         const o = tp(Mc, [0, 0, 0]), X = norm(td(Mc, [1, 0, 0])), Y = norm(td(Mc, [0, 1, 0]));
-        const ang = (T) => (T.c && (cart || T.t == null) ? Math.atan2(((T.c[0] - o[0]) * Y[0] + (T.c[1] - o[1]) * Y[1]) / b, ((T.c[0] - o[0]) * X[0] + (T.c[1] - o[1]) * X[1]) / a) : (T.t || 0) * kAng);
+        const ang = (T) => (T.c && (cart || T.t == null) ? Math.atan2(dot(sub(T.c, o), Y) / b, dot(sub(T.c, o), X) / a) : (T.t || 0) * kAng);
         const a1 = ang(t1); let a2 = ang(t2);
         if (sens) { while (a2 <= a1 + 1e-9) a2 += 2 * Math.PI; } else { while (a2 >= a1 - 1e-9) a2 -= 2 * Math.PI; }
         const n = Math.max(2, Math.ceil(Math.abs(a2 - a1) / (Math.PI / 16)));
-        return [...Array(n + 1)].map((_, i) => { const t = a1 + ((a2 - a1) * i) / n; const p = tp(Mc, [a * Math.cos(t), b * Math.sin(t), 0]); return [p[0], p[1]]; });
+        return [...Array(n + 1)].map((_, i) => { const t = a1 + ((a2 - a1) * i) / n; return tp(Mc, [a * Math.cos(t), b * Math.sin(t), 0]); });
       }
-      if (B.type === "IFCPOLYLINE") return courbe2D(e.a[0], false);
+      if (B.type === "IFCPOLYLINE") return courbe3D(e.a[0], false);
       avertissements.add("Courbe non dessinée : " + B.type); return [];
+    }
+    // Tube le long d'une courbe (armatures, mains courantes, garde-corps)
+    function tube(e, M, out, c) {
+      let P = courbe3D(e.a[0], false).map((p) => tp(M, p)); const R = (num(e.a[1]) || 0) * k, Ri = (num(e.a[2]) || 0) * k;
+      if (P.length < 2 || R <= 0) return;
+      const ferme = len(sub(P[0], P[P.length - 1])) < 1e-9; if (ferme) P.pop();
+      const nP = P.length, ns = R > 0.05 ? 16 : 8;
+      const seg = (i) => norm(sub(P[Math.min(i + 1, nP - 1)], P[Math.max(i, 0)]));
+      const tang = P.map((_, i) => { const a = i > 0 || ferme ? norm(sub(P[i], P[(i - 1 + nP) % nP])) : null, b = i < nP - 1 || ferme ? norm(sub(P[(i + 1) % nP], P[i])) : null; const t = a && b ? norm([a[0] + b[0], a[1] + b[1], a[2] + b[2]]) : a || b; return isFinite(t[0]) ? t : seg(i); });
+      let nrm0 = Math.abs(tang[0][2]) < 0.9 ? cross(tang[0], [0, 0, 1]) : cross(tang[0], [1, 0, 0]); nrm0 = norm(nrm0);
+      const anneaux = (r) => { let nn = nrm0; return P.map((p, i) => { const t = tang[i]; nn = norm(sub(nn, t.map((x) => x * dot(nn, t)))); if (!isFinite(nn[0])) nn = nrm0; const bb = cross(t, nn); return [...Array(ns)].map((_, j) => { const a = (j * 2 * Math.PI) / ns, cs = Math.cos(a) * r, sn = Math.sin(a) * r; return [p[0] + nn[0] * cs + bb[0] * sn, p[1] + nn[1] * cs + bb[1] * sn, p[2] + nn[2] * cs + bb[2] * sn]; }); }); };
+      const ext = anneaux(R), int = Ri > 0 && Ri < R ? anneaux(Ri) : null, tris = [], ar = [];
+      const bande = (A) => { const m = ferme ? nP : nP - 1; for (let i = 0; i < m; i++) { const r0 = A[i], r1 = A[(i + 1) % nP]; for (let j = 0; j < ns; j++) { const j1 = (j + 1) % ns; tris.push([r0[j], r0[j1], r1[j1]], [r0[j], r1[j1], r1[j]]); } } };
+      bande(ext); if (int) bande(int);
+      if (!ferme) for (const i of [0, nP - 1]) {
+        const E0 = ext[i]; E0.forEach((q, j) => ar.push([q, E0[(j + 1) % ns]]));
+        if (int) { const I0 = int[i]; for (let j = 0; j < ns; j++) { const j1 = (j + 1) % ns; tris.push([E0[j], E0[j1], I0[j1]], [E0[j], I0[j1], I0[j]]); } }
+        else for (let j = 1; j < ns - 1; j++) tris.push([E0[0], E0[j], E0[j + 1]]);
+      }
+      out.push({ tris, aretes: ar, couleur: c, src: e.id });
     }
     function extrusion(e, M, out, c) {
       const pr = profil(e.a[0]); if (!pr) return;
@@ -554,7 +615,7 @@ const IFC = (() => {
       for (const op of ouvertures) {
         const pts = op.flatMap((m) => m.tris.flat()).map(versUZ);
         if (!pts.length) continue;
-        const e0 = Math.min(...pts.map((p) => p[2])), e1 = Math.max(...pts.map((p) => p[2]));
+        const e0 = minDe(pts.map((p) => p[2])), e1 = maxDe(pts.map((p) => p[2]));
         if (e1 < 1e-6 || e0 > T - 1e-6) continue;
         const H = hull(pts); if (H.length >= 3) trous.push(H);
       }
@@ -641,7 +702,7 @@ const IFC = (() => {
         const dans = (q, Q) => { let c = false; for (let i = 0, j = Q.length - 1; i < Q.length; j = i++) { const a = Q[i], b = Q[j]; if ((a[1] > q[1]) !== (b[1] > q[1]) && q[0] < ((b[0] - a[0]) * (q[1] - a[1])) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
         const parent = B2.map((Q, i) => { let best = -1; B2.forEach((R, j) => { if (j !== i && aire(R) > aire(Q) && dans(Q[0], R) && (best < 0 || aire(R) < aire(B2[best]))) best = j; }); return best; });
         const prof = (i) => { let c = 0, x = parent[i]; while (x >= 0 && c < 50) { c++; x = parent[x]; } return c; };
-        boucles.forEach((B, i) => { if (prof(i) % 2) return; tris.push(...triangulate3D(B, boucles.filter((_, j) => parent[j] === i && prof(j) % 2 === 1))); });
+        boucles.forEach((B, i) => { if (prof(i) % 2) return; for (const t of triangulate3D(B, boucles.filter((_, j) => parent[j] === i && prof(j) % 2 === 1))) tris.push(t); });
         for (const B of boucles) B.forEach((p, i) => aretes.push([p, B[(i + 1) % B.length]]));
       }
       return { ...m, tris, aretes, boite: null, coupes: null };
@@ -666,7 +727,7 @@ const IFC = (() => {
       if (total > 20000) return null;
       const trous = [];
       for (const op of ouvs) {
-        const gr = new Map(); for (const m of op) { const kk = m.src ?? m; if (!gr.has(kk)) gr.set(kk, []); gr.get(kk).push(...m.tris); }
+        const gr = new Map(); for (const m of op) { const kk = m.src ?? m; if (!gr.has(kk)) gr.set(kk, []); for (const t of m.tris) gr.get(kk).push(t); }
         for (const g of gr.values()) {
         const tris = enveloppe3D(g.flat()); if (!tris.length) continue;
         // ouverture tres legerement agrandie (0,1 mm) : evite les faces confondues avec celles du mur
@@ -695,7 +756,7 @@ const IFC = (() => {
       let surf = null;
       if (best) {
         const z = [0, 0, 1], u = norm(cross(z, best.n)), P = out.flatMap((m) => m.tris.flat());
-        const ext = (d) => { const v = P.map((p) => dot(p, d)); return Math.max(...v) - Math.min(...v); };
+        const ext = (d) => { const v = P.map((p) => dot(p, d)); return maxDe(v) - minDe(v); };
         const Lw = ext(u), hw = ext(z), Tw = ext(best.n);
         surf = { L: Lw, h: hw, T: Tw, brute: Lw * hw, nette: ba, trous: best.f.boucles.length - 1 };
       }
@@ -705,8 +766,8 @@ const IFC = (() => {
     // ---------- Produits ----------
     const produits = [];
     const geomOuv = new Map();
-    for (const e of ents.values()) if (e.type === "IFCOPENINGELEMENT") geomOuv.set(e.id, geomProduit(e));
-    for (const e of ents.values()) {
+    for (const e of ents.deType("IFCOPENINGELEMENT")) geomOuv.set(e.id, geomProduit(e));
+    for (const e of ents.candidats()) {
       if (PAS_DESSINES.has(e.type)) continue;
       const pds = E(e.a && e.a[6]); if (!pds || pds.type !== "IFCPRODUCTDEFINITIONSHAPE") continue;
       let morceaux = geomProduit(e);
@@ -736,9 +797,14 @@ const IFC = (() => {
       // coupes par plan (apres les ouvertures), puis aretes allegees sur les formes tres facettees
       morceaux = morceaux.flatMap((m) => { let x = m; for (const c of m.coupes || []) { if (x) x = couperMorceau(x, c); } return x && x.tris.length ? [x] : []; });
       if (!morceaux.length) continue;
-      if (morceaux.reduce((s2, m) => s2 + m.aretes.length, 0) > 150) aretesVives(morceaux);
-      p.morceaux = morceaux;
+      if (morceaux.reduce((s2, m) => s2 + m.aretes.length, 0) > 24) aretesVives(morceaux);
+      if (prog && ++nbProd % 150 === 0) prog(ents.pos / ents.size);
       p.bb = bbox(morceaux.flatMap((m) => m.tris.flat()));
+      // stockage compact (9 nombres par triangle, 6 par arete) : 5 fois moins de memoire, transfert instantane depuis le worker
+      // une seule piece compacte par forme (src), couleur et vitrage : evite des milliers de petits tableaux
+      const grp = new Map();
+      for (const m of morceaux) { const kk = `${m.src}|${m.couleur ? m.couleur.rgb.join(",") + "/" + m.couleur.alpha : ""}|${m.verre ? 1 : 0}`; const g = grp.get(kk); if (g) { for (const t of m.tris) g.tris.push(t); for (const a of m.aretes) g.aretes.push(a); } else grp.set(kk, { ...m, tris: m.tris.slice(), aretes: m.aretes.slice() }); }
+      p.morceaux = [...grp.values()].map(compacter);
       produits.push(p);
     }
     // Mur qui porte chaque fenetre / porte : relation IFC si presente, sinon par position
@@ -757,8 +823,8 @@ const IFC = (() => {
       }
       p.mur = best;
     }
-    const projet = [...ents.values()].find((e) => e.type === "IFCPROJECT");
-    const app = [...ents.values()].find((e) => e.type === "IFCAPPLICATION");
+    const projet = ents.deType("IFCPROJECT").next().value;
+    const app = ents.deType("IFCAPPLICATION").next().value;
     return {
       schema, produits, etages, avertissements: [...avertissements],
       projet: projet ? str(projet.a[2]) || "Sans nom" : "Sans nom",
@@ -768,6 +834,41 @@ const IFC = (() => {
       bbTout: bbox(produits.flatMap((p) => [p.bb.min, p.bb.max])),
     };
   }
+  // Texte d'un fichier .ifc, ou du .ifc contenu dans un .ifczip / .zip (decompression native du navigateur)
+  async function texteIFC(blob) {
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    if (buf[0] !== 0x50 || buf[1] !== 0x4b) return new TextDecoder().decode(buf);
+    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    let e = -1; for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    if (e < 0) throw new Error("archive ZIP illisible");
+    const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true); const L = [];
+    for (let i = 0; i < n && dv.getUint32(p, true) === 0x02014b50; i++) {
+      const nl = dv.getUint16(p + 28, true), el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+      L.push({ nom: new TextDecoder().decode(buf.subarray(p + 46, p + 46 + nl)), meth: dv.getUint16(p + 10, true), taille: dv.getUint32(p + 20, true), brut: dv.getUint32(p + 24, true), off: dv.getUint32(p + 42, true) });
+      p += 46 + nl + el + cl;
+    }
+    const f = L.filter((x) => /\.ifc$/i.test(x.nom)).sort((a, b) => b.brut - a.brut)[0];
+    if (!f) throw new Error("aucun fichier .ifc dans l'archive");
+    const debut = f.off + 30 + dv.getUint16(f.off + 26, true) + dv.getUint16(f.off + 28, true), data = buf.subarray(debut, debut + f.taille);
+    if (f.meth === 0) return new TextDecoder().decode(data);
+    if (f.meth !== 8) throw new Error("compression de l'archive non gérée : décompressez-la puis ouvrez le .ifc");
+    const flux = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    return new TextDecoder().decode(await new Response(flux).arrayBuffer());
+  }
+  // Coordonnees en simple precision, relatives a une origine propre a chaque piece (o) : precision < 0,01 mm
+  function compacter(m) {
+    const p0 = (m.tris[0] || m.aretes[0] || [[0, 0, 0]])[0], o = [Math.round(p0[0]), Math.round(p0[1]), Math.round(p0[2])];
+    const T = new Float32Array(m.tris.length * 9), A = new Float32Array(m.aretes.length * 6);
+    let i = 0; for (const t of m.tris) for (const q of t) { T[i++] = q[0] - o[0]; T[i++] = q[1] - o[1]; T[i++] = q[2] - o[2]; }
+    i = 0; for (const a of m.aretes) for (const q of a) { A[i++] = q[0] - o[0]; A[i++] = q[1] - o[1]; A[i++] = q[2] - o[2]; }
+    return { T, A, o, couleur: m.couleur, src: m.src, verre: !!m.verre };
+  }
+  // retour aux triangles [[x,y,z]x3] et aretes [[x,y,z]x2] pour les calculs ponctuels (coupe, STEP)
+  function trisDe(m) { const T = m.T, o = m.o, out = new Array(T.length / 9); for (let i = 0, n = 0; i < T.length; i += 9) out[n++] = [[T[i] + o[0], T[i + 1] + o[1], T[i + 2] + o[2]], [T[i + 3] + o[0], T[i + 4] + o[1], T[i + 5] + o[2]], [T[i + 6] + o[0], T[i + 7] + o[1], T[i + 8] + o[2]]]; return out; }
+  function aretesDe(m) { const A = m.A, o = m.o, out = new Array(A.length / 6); for (let i = 0, n = 0; i < A.length; i += 6) out[n++] = [[A[i] + o[0], A[i + 1] + o[1], A[i + 2] + o[2]], [A[i + 3] + o[0], A[i + 4] + o[1], A[i + 5] + o[2]]]; return out; }
+  // min / max sans « ... » (qui deborde la pile au-dela de ~100 000 valeurs)
+  const minDe = (A) => { let m = Infinity; for (const v of A) if (v < m) m = v; return m; };
+  const maxDe = (A) => { let m = -Infinity; for (const v of A) if (v > m) m = v; return m; };
   function bbox(pts) { const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const p of pts) for (let i = 0; i < 3; i++) { if (p[i] < min[i]) min[i] = p[i]; if (p[i] > max[i]) max[i] = p[i]; } return { min, max }; }
 
 
@@ -787,7 +888,7 @@ const IFC = (() => {
       if (!visible(pi)) return;
       for (const m of p.morceaux) {
         const calque = calqueDe(p, m);
-        for (const t of m.tris) {
+        for (const t of trisDe(m)) {
           const d = t.map((q) => q[ax] - v);
           if (d.every((x) => Math.abs(x) < 1e-7)) continue;
           const pts = [];
@@ -800,7 +901,7 @@ const IFC = (() => {
           for (const q of pts) if (!u.some((w) => Math.hypot(w[0] - q[0], w[1] - q[1], w[2] - q[2]) < 1e-6)) u.push(q);
           if (u.length === 2) segs.push({ a: vers2D(coupe.axe, u[0]), b: vers2D(coupe.axe, u[1]), calque, pi });
         }
-        if (avecVus && !m.verre) for (const [a, b] of m.aretes) if (a[ax] <= v + 1e-7 && b[ax] <= v + 1e-7) segs.push({ a: vers2D(coupe.axe, a), b: vers2D(coupe.axe, b), calque: "VU", pi });
+        if (avecVus && !m.verre) for (const [a, b] of aretesDe(m)) if (a[ax] <= v + 1e-7 && b[ax] <= v + 1e-7) segs.push({ a: vers2D(coupe.axe, a), b: vers2D(coupe.axe, b), calque: "VU", pi });
       }
     });
     return fusionner(segs);
@@ -834,7 +935,7 @@ const IFC = (() => {
           for (let x = 0; x < 4; x++) for (let y = x + 1; y < 4; y++) { const dd = Math.hypot(pts[x][0] - pts[y][0], pts[x][1] - pts[y][1]); if (dd > bd) { bd = dd; best = [x, y]; } }
           s.a = pts[best[0]]; s.b = pts[best[1]]; mort.add(j); change = true;
         }
-        if (change) { const reste = L.filter((_, i) => !mort.has(i)); L.length = 0; L.push(...reste); }
+        if (change) { const reste = L.filter((_, i) => !mort.has(i)); L.length = 0; for (const x of reste) L.push(x); }
       }
       for (const s of L) out.push({ ...s, calque });
     }
@@ -1007,7 +1108,7 @@ const IFC = (() => {
       const p = model.produits[pi];
       // une forme fermee par element de geometrie IFC (src) : cadre et vitre restent deux solides
       const groupes = new Map();
-      for (const m of p.morceaux) { if (!groupes.has(m.src)) groupes.set(m.src, []); groupes.get(m.src).push(...m.tris); }
+      for (const m of p.morceaux) { if (!groupes.has(m.src)) groupes.set(m.src, []); for (const t of trisDe(m)) groupes.get(m.src).push(t); }
       const breps = []; let toutSolide = true;
       for (const tris of groupes.values()) {
         const S = topologie(tris);
@@ -1067,6 +1168,6 @@ const IFC = (() => {
   }
 
   const couleurType = (ifc) => COULEURS[ifc] || [0.62, 0.64, 0.66];
-  return { build, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
+  return { parse, build, texteIFC, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
 })();
 export default IFC;

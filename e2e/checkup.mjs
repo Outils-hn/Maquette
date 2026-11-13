@@ -108,6 +108,15 @@ await step("Ouvrir un fichier", async () => {
   await page.setInputFiles("#ouvrir", "exemples/TinyHouse.ifc");
   await page.waitForFunction(() => window.__viewer?.M, null, { timeout: 15000 });
   verif("Fichier choisi sur le poste : ouvert", (await txt(page, "#fichier")) === "TinyHouse.ifc");
+  // archive .ifczip (le format compresse que les architectes envoient souvent)
+  const { deflateRawSync } = await import("node:zlib"); const { readFileSync } = await import("node:fs");
+  const data = readFileSync("exemples/TinyHouse.ifc"), comp = deflateRawSync(data), nm = Buffer.from("TinyHouse.ifc");
+  const loc = Buffer.alloc(30); loc.writeUInt32LE(0x04034b50, 0); loc.writeUInt16LE(20, 4); loc.writeUInt16LE(8, 8); loc.writeUInt32LE(comp.length, 18); loc.writeUInt32LE(data.length, 22); loc.writeUInt16LE(nm.length, 26);
+  const cen = Buffer.alloc(46); cen.writeUInt32LE(0x02014b50, 0); cen.writeUInt16LE(20, 6); cen.writeUInt16LE(8, 10); cen.writeUInt32LE(comp.length, 20); cen.writeUInt32LE(data.length, 24); cen.writeUInt16LE(nm.length, 28);
+  const fin = Buffer.alloc(22); fin.writeUInt32LE(0x06054b50, 0); fin.writeUInt16LE(1, 8); fin.writeUInt16LE(1, 10); fin.writeUInt32LE(46 + nm.length, 12); fin.writeUInt32LE(30 + nm.length + comp.length, 16);
+  await page.setInputFiles("#ouvrir", { name: "Maquette.ifczip", mimeType: "application/zip", buffer: Buffer.concat([loc, nm, comp, cen, nm, fin]) });
+  await page.waitForFunction(() => document.querySelector("#fichier")?.textContent === "Maquette.ifczip", null, { timeout: 15000 }).catch(() => {});
+  verif("Archive .ifczip ouverte", (await txt(page, "#fichier")) === "Maquette.ifczip" && (await page.evaluate(() => window.__viewer?.M?.produits.length)) === 71, await txt(page, "#fichier"));
   await page.setInputFiles("#ouvrir", { name: "plan.dwg", mimeType: "application/octet-stream", buffer: Buffer.from("x") });
   await page.waitForTimeout(300);
   verif("Autre format refuse avec un message clair", /fichier \.ifc/.test(await txt(page, "#toast")), await txt(page, "#toast"));
