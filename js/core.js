@@ -990,27 +990,40 @@ const IFC = (() => {
   }
   const ascii = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\x20-\x7e]/g, "?");
   // textes : [{ p: [x, y] (m), h (mm), txt, calque, centre }]
-  function dxf(segs, titre, textes = []) {
+  // opts : { prefixe ("IFC"), calques: { NOM: { couleur, ltype } }, cercles: [{ c, r, calque }], arcs: [{ c, r, a0, a1 (degres, sens trigo), calque }],
+  //          hTitre (mm), dyTitre (m), ltscale }
+  function dxf(segs, titre, textes = [], opts = {}) {
     const f = (x) => (Math.round(x * 1000 * 1000) / 1000).toString(); // m -> mm
+    const pre = opts.prefixe || "IFC", cercles = opts.cercles || [], arcs = opts.arcs || [], cfg = opts.calques || {};
+    const dyT = opts.dyTitre ?? 0.5, hT = opts.hTitre ?? 150;
     const L = []; const g = (c, v) => L.push(String(c), String(v));
     let mn = [Infinity, Infinity], mx = [-Infinity, -Infinity];
     for (const s of segs) for (const q of [s.a, s.b]) { mn = [Math.min(mn[0], q[0]), Math.min(mn[1], q[1])]; mx = [Math.max(mx[0], q[0]), Math.max(mx[1], q[1])]; }
+    for (const c of cercles) { mn = [Math.min(mn[0], c.c[0] - c.r), Math.min(mn[1], c.c[1] - c.r)]; mx = [Math.max(mx[0], c.c[0] + c.r), Math.max(mx[1], c.c[1] + c.r)]; }
     if (!isFinite(mn[0])) { mn = [0, 0]; mx = [1, 1]; }
-    const calques = [...new Set([...segs.map((s) => s.calque), ...textes.map((t) => t.calque || "TEXTE"), "TEXTE"])];
+    const calques = [...new Set([...segs.map((s) => s.calque), ...cercles.map((c) => c.calque), ...arcs.map((c) => c.calque), ...textes.map((t) => t.calque || "TEXTE"), "TEXTE"])];
     g(0, "SECTION"); g(2, "HEADER"); g(9, "$ACADVER"); g(1, "AC1009"); g(9, "$INSBASE"); g(10, 0); g(20, 0); g(30, 0);
-    g(9, "$EXTMIN"); g(10, f(mn[0])); g(20, f(mn[1] - 0.6)); g(30, 0); g(9, "$EXTMAX"); g(10, f(mx[0])); g(20, f(mx[1])); g(30, 0); g(0, "ENDSEC");
+    if (opts.ltscale) { g(9, "$LTSCALE"); g(40, opts.ltscale); }
+    g(9, "$EXTMIN"); g(10, f(mn[0])); g(20, f(mn[1] - dyT - 0.1)); g(30, 0); g(9, "$EXTMAX"); g(10, f(mx[0])); g(20, f(mx[1])); g(30, 0); g(0, "ENDSEC");
     g(0, "SECTION"); g(2, "TABLES");
-    g(0, "TABLE"); g(2, "LTYPE"); g(70, 1); g(0, "LTYPE"); g(2, "CONTINUOUS"); g(70, 0); g(3, "Solid line"); g(72, 65); g(73, 0); g(40, "0.0"); g(0, "ENDTAB");
+    g(0, "TABLE"); g(2, "LTYPE"); g(70, 3);
+    g(0, "LTYPE"); g(2, "CONTINUOUS"); g(70, 0); g(3, "Solid line"); g(72, 65); g(73, 0); g(40, "0.0");
+    g(0, "LTYPE"); g(2, "DASHED"); g(70, 0); g(3, "Dashed __ __ __"); g(72, 65); g(73, 2); g(40, "7.5"); g(49, "5.0"); g(49, "-2.5");
+    g(0, "LTYPE"); g(2, "CENTER"); g(70, 0); g(3, "Center ____ _ ____ _"); g(72, 65); g(73, 4); g(40, "20.0"); g(49, "12.0"); g(49, "-2.0"); g(49, "4.0"); g(49, "-2.0");
+    g(0, "ENDTAB");
     g(0, "TABLE"); g(2, "LAYER"); g(70, calques.length);
-    for (const c of calques) { g(0, "LAYER"); g(2, `IFC-${c}`); g(70, 0); g(62, CALQUES[c] || 7); g(6, "CONTINUOUS"); }
+    for (const c of calques) { g(0, "LAYER"); g(2, `${pre}-${c}`); g(70, 0); g(62, (cfg[c] && cfg[c].couleur) || CALQUES[c] || 7); g(6, (cfg[c] && cfg[c].ltype) || "CONTINUOUS"); }
     g(0, "ENDTAB"); g(0, "ENDSEC");
     g(0, "SECTION"); g(2, "ENTITIES");
-    for (const s of segs) { g(0, "LINE"); g(8, `IFC-${s.calque}`); g(10, f(s.a[0])); g(20, f(s.a[1])); g(30, 0); g(11, f(s.b[0])); g(21, f(s.b[1])); g(31, 0); }
+    for (const s of segs) { g(0, "LINE"); g(8, `${pre}-${s.calque}`); g(10, f(s.a[0])); g(20, f(s.a[1])); g(30, 0); g(11, f(s.b[0])); g(21, f(s.b[1])); g(31, 0); }
+    for (const c of cercles) { g(0, "CIRCLE"); g(8, `${pre}-${c.calque}`); g(10, f(c.c[0])); g(20, f(c.c[1])); g(30, 0); g(40, f(c.r)); }
+    for (const c of arcs) { g(0, "ARC"); g(8, `${pre}-${c.calque}`); g(10, f(c.c[0])); g(20, f(c.c[1])); g(30, 0); g(40, f(c.r)); g(50, Math.round(c.a0 * 1000) / 1000); g(51, Math.round(c.a1 * 1000) / 1000); }
     for (const t of textes) {
-      g(0, "TEXT"); g(8, `IFC-${t.calque || "TEXTE"}`); g(10, f(t.p[0])); g(20, f(t.p[1])); g(30, 0); g(40, t.h || 100); g(1, ascii(t.txt));
+      g(0, "TEXT"); g(8, `${pre}-${t.calque || "TEXTE"}`); g(10, f(t.p[0])); g(20, f(t.p[1])); g(30, 0); g(40, t.h || 100); g(1, ascii(String(t.txt).replace(/Ø/g, "%%c")));
+      if (t.rot) g(50, t.rot);
       if (t.centre) { g(72, 1); g(11, f(t.p[0])); g(21, f(t.p[1])); g(31, 0); }
     }
-    g(0, "TEXT"); g(8, "IFC-TEXTE"); g(10, f(mn[0])); g(20, f(mn[1] - 0.5)); g(30, 0); g(40, 150); g(1, ascii(titre));
+    g(0, "TEXT"); g(8, `${pre}-TEXTE`); g(10, f(mn[0])); g(20, f(mn[1] - dyT)); g(30, 0); g(40, hT); g(1, ascii(titre));
     g(0, "ENDSEC"); g(0, "EOF");
     return L.join("\r\n") + "\r\n";
   }
@@ -1390,6 +1403,190 @@ const IFC = (() => {
     return { texte, nbPieces, nbFaces, nbSolides, nbSurfaces };
   }
 
+  // ---------- Vues 2D d'une piece ou d'un assemblage : traits vus / caches, cercles et arcs, cotes ----------
+  // L'objet est projete sur un plan (dessus ou l'une des faces, comme les vues de l'appli). Chaque arete est classee vue ou cachee avec un
+  // tampon de profondeur ; les contours des surfaces courbes (silhouettes) s'ajoutent aux aretes ; les facettes d'un trou ou d'un arrondi
+  // sont regroupees en vrais cercles et arcs. Repere 2D (en m) : u vers la droite, v vers le haut.
+  const VUES2D = {
+    dessus: { nom: "Dessus", U: [1, 0, 0], V: [0, 1, 0], W: [0, 0, 1] },
+    dessous: { nom: "Dessous", U: [1, 0, 0], V: [0, -1, 0], W: [0, 0, -1] },
+    a: { nom: "Avant", U: [1, 0, 0], V: [0, 0, 1], W: [0, -1, 0] },
+    b: { nom: "Droite", U: [0, 1, 0], V: [0, 0, 1], W: [1, 0, 0] },
+    c: { nom: "Arrière", U: [-1, 0, 0], V: [0, 0, 1], W: [0, 1, 0] },
+    d: { nom: "Gauche", U: [0, -1, 0], V: [0, 0, 1], W: [-1, 0, 0] },
+  };
+  const CALQUES_VUE = { VISIBLE: { couleur: 7, ltype: "CONTINUOUS" }, CACHE: { couleur: 8, ltype: "DASHED" }, AXES: { couleur: 1, ltype: "CENTER" }, COTES: { couleur: 3, ltype: "CONTINUOUS" }, TEXTE: { couleur: 2, ltype: "CONTINUOUS" } };
+  const TAILLES_TEXTE = [1.8, 2.5, 3.5, 5, 7, 10, 14, 20, 28, 40, 56, 80, 112, 160, 224, 320];
+  // Facettes d'un arrondi : angles de raccord faibles et cotes de longueurs voisines (un rectangle, lui, a 4 coins sur un meme cercle)
+  function facettesRegulieres(P, i, j) {
+    let lmin = Infinity, lmax = 0;
+    for (let k = i; k < j; k++) { const l = Math.hypot(P[k + 1][0] - P[k][0], P[k + 1][1] - P[k][1]); if (l < lmin) lmin = l; if (l > lmax) lmax = l; }
+    if (!(lmin > 0) || lmax > 1.8 * lmin) return false;
+    for (let k = i + 1; k < j; k++) {
+      const ax = P[k][0] - P[k - 1][0], ay = P[k][1] - P[k - 1][1], bx = P[k + 1][0] - P[k][0], by = P[k + 1][1] - P[k][1];
+      if (Math.abs(Math.atan2(ax * by - ay * bx, ax * bx + ay * by)) > 0.7) return false; // plus de 40 degrees entre deux facettes : un coin
+    }
+    return true;
+  }
+  // cercle moyen (moindres carres) d'une suite de points : { c, r, err } ; err = ecart maximal a ce cercle
+  function ajusterCercle(P, i, j) {
+    let mx = 0, my = 0; const n = j - i + 1;
+    for (let k = i; k <= j; k++) { mx += P[k][0]; my += P[k][1]; } mx /= n; my /= n;
+    let sxx = 0, sxy = 0, syy = 0, sxz = 0, syz = 0;
+    for (let k = i; k <= j; k++) { const x = P[k][0] - mx, y = P[k][1] - my, z = x * x + y * y; sxx += x * x; sxy += x * y; syy += y * y; sxz += x * z; syz += y * z; }
+    const det = sxx * syy - sxy * sxy; if (Math.abs(det) < 1e-30) return null;
+    const cx = (sxz * syy - syz * sxy) / (2 * det), cy = (syz * sxx - sxz * sxy) / (2 * det);
+    let r = 0; for (let k = i; k <= j; k++) r += Math.hypot(P[k][0] - mx - cx, P[k][1] - my - cy); r /= n;
+    let err = 0; for (let k = i; k <= j; k++) err = Math.max(err, Math.abs(Math.hypot(P[k][0] - mx - cx, P[k][1] - my - cy) - r));
+    return { c: [mx + cx, my + cy], r, err };
+  }
+  // traits -> chaines de points (par extremites communes), puis lignes / cercles / arcs
+  function regrouper(segs, pix, calque, out) {
+    const cle = (q) => Math.round(q[0] * 1e5) + "," + Math.round(q[1] * 1e5), adj = new Map(), pts = new Map();
+    segs.forEach((s2, k) => { for (const q of [s2.a, s2.b]) { const c = cle(q); pts.set(c, q); (adj.get(c) || adj.set(c, []).get(c)).push(k); } });
+    const pris = new Array(segs.length).fill(false), chaines = [];
+    const suivre = (dep, k0) => {
+      const P = [pts.get(dep)]; let cur = dep, k = k0, ferme = false;
+      while (k !== undefined && !pris[k]) {
+        pris[k] = true; const s2 = segs[k], ca = cle(s2.a), cb = cle(s2.b), nx = ca === cur ? cb : ca; P.push(pts.get(nx)); cur = nx;
+        const L = adj.get(cur); if (L.length !== 2) break;
+        const k2 = L[0] === k ? L[1] : L[0]; if (pris[k2]) { ferme = cur === dep; break; } k = k2;
+      }
+      return { P, ferme: ferme || (P.length > 2 && cle(P[0]) === cle(P[P.length - 1])) };
+    };
+    for (const [c, L] of adj) if (L.length !== 2) for (const k of L) if (!pris[k]) chaines.push(suivre(c, k));
+    for (let k = 0; k < segs.length; k++) if (!pris[k]) chaines.push(suivre(cle(segs[k].a), k));
+    const rMax = 1e4 * pix;
+    const ligne = (a, b) => { if (Math.hypot(a[0] - b[0], a[1] - b[1]) > 1e-9) out.segs.push({ a, b, calque }); };
+    for (let { P, ferme } of chaines) {
+      if (ferme) P = P.slice(0, -1);
+      const m = P.length;
+      // cercle entier : chaine fermee dont tous les points sont sur un meme cercle
+      if (ferme && m >= 6) { const c = ajusterCercle(P, 0, m - 1); if (c && facettesRegulieres([...P, P[0]], 0, m) && c.r > 3 * pix && c.r < rMax && c.err <= Math.max(0.0015 * c.r, 0.4 * pix)) { out.cercles.push({ c: c.c, r: c.r, calque }); continue; } }
+      // sinon : une chaine fermee est ouverte a son premier angle vif, puis arcs et lignes
+      let Q = P;
+      if (ferme) {
+        let k0 = 0, best = -1;
+        for (let k = 0; k < m; k++) { const a = P[(k + m - 1) % m], b = P[k], c = P[(k + 1) % m]; const t = Math.abs(Math.atan2((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]), (b[0] - a[0]) * (c[0] - b[0]) + (b[1] - a[1]) * (c[1] - b[1]))); if (t > best) { best = t; k0 = k; } }
+        Q = [...P.slice(k0), ...P.slice(0, k0), P[k0]];
+      }
+      let i = 0; const n = Q.length;
+      while (i < n - 1) {
+        let j = i + 3, c = j < n ? ajusterCercle(Q, i, j) : null;
+        const bon = (cc, a, b) => cc && cc.r > 3 * pix && cc.r < rMax && cc.err <= Math.max(0.0015 * cc.r, 0.4 * pix) && facettesRegulieres(Q, a, b);
+        if (!bon(c, i, j)) { ligne(Q[i], Q[i + 1]); i++; continue; }
+        let best = c; while (j + 1 < n) { const c2 = ajusterCercle(Q, i, j + 1); if (!bon(c2, i, j + 1)) break; best = c2; j++; }
+        // sens de parcours : produit vectoriel moyen des segments successifs
+        let sens = 0; for (let k = i; k < j; k++) sens += (Q[k + 1][0] - Q[k][0]) * (Q[Math.min(k + 2, j)][1] - Q[k + 1][1]) - (Q[k + 1][1] - Q[k][1]) * (Q[Math.min(k + 2, j)][0] - Q[k + 1][0]);
+        const ang = (q) => (Math.atan2(q[1] - best.c[1], q[0] - best.c[0]) * 180) / Math.PI;
+        let a0 = ang(Q[i]), a1 = ang(Q[j]); if (sens < 0) [a0, a1] = [a1, a0];
+        out.arcs.push({ c: best.c, r: best.r, a0: ((a0 % 360) + 360) % 360, a1: ((a1 % 360) + 360) % 360, calque });
+        i = j;
+      }
+    }
+  }
+  // opts : { caches, cotes (generales), trous (diametres et axes), entraxes, resolution }
+  function projection(model, indices, cle, opts = {}) {
+    const Vw = VUES2D[cle]; if (!Vw) throw new Error("vue inconnue");
+    const o = { caches: true, cotes: true, trous: true, entraxes: false, resolution: 2000, ...opts };
+    const { U, V, W } = Vw;
+    const pu = (x, y, z) => U[0] * x + U[1] * y + U[2] * z, pv = (x, y, z) => V[0] * x + V[1] * y + V[2] * z, pw = (x, y, z) => W[0] * x + W[1] * y + W[2] * z;
+    const pieces = indices.map((i) => ({ i, p: model.produits[i] })).filter((x) => x.p);
+    // etendue dans le plan et en profondeur
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity, w0 = Infinity, w1 = -Infinity, nTri = 0;
+    for (const { p } of pieces) for (const m of p.morceaux) {
+      const T = m.T, ox = m.o[0], oy = m.o[1], oz = m.o[2]; nTri += T.length / 9;
+      for (let k = 0; k < T.length; k += 3) { const x = T[k] + ox, y = T[k + 1] + oy, z = T[k + 2] + oz, u = pu(x, y, z), v = pv(x, y, z), w = pw(x, y, z); if (u < u0) u0 = u; if (u > u1) u1 = u; if (v < v0) v0 = v; if (v > v1) v1 = v; if (w < w0) w0 = w; if (w > w1) w1 = w; }
+    }
+    const vide = { nom: Vw.nom, segs: [], cercles: [], arcs: [], textes: [], largeur: 0, hauteur: 0, nTri: 0, titre: { h: 3.5, dy: 0.02 } };
+    if (!nTri) return vide;
+    const du = u1 - u0, dv = v1 - v0, pix = Math.max(du, dv, 1e-6) / o.resolution, Wp = Math.ceil(du / pix) + 3, Hp = Math.ceil(dv / pix) + 3;
+    const Z = new Float32Array(Wp * Hp).fill(-Infinity);
+    // 1. tampon de profondeur
+    function ras(ax, ay, az, bx, by, bz, cx, cy, cz) {
+      const den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(den) < 1e-12) return;
+      const inv = 1 / den, x0 = Math.max(0, Math.floor(Math.min(ax, bx, cx))), x1 = Math.min(Wp - 1, Math.ceil(Math.max(ax, bx, cx))), y0 = Math.max(0, Math.floor(Math.min(ay, by, cy))), y1 = Math.min(Hp - 1, Math.ceil(Math.max(ay, by, cy)));
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const qx = x + 0.5, qy = y + 0.5, l1 = ((by - cy) * (qx - cx) + (cx - bx) * (qy - cy)) * inv, l2 = ((cy - ay) * (qx - cx) + (ax - cx) * (qy - cy)) * inv, l3 = 1 - l1 - l2;
+        if (l1 < -1e-4 || l2 < -1e-4 || l3 < -1e-4) continue;
+        const w = l1 * az + l2 * bz + l3 * cz, k = y * Wp + x; if (w > Z[k]) Z[k] = w;
+      }
+    }
+    const aretes = new Map(), q6 = (x) => Math.round(x * 1e6), kp = (x, y, z) => q6(x) + "," + q6(y) + "," + q6(z);
+    const ajouter = (ax, ay, az, bx, by, bz) => { const ka = kp(ax, ay, az), kb = kp(bx, by, bz); if (ka === kb) return; const k = ka < kb ? ka + "|" + kb : kb + "|" + ka; if (!aretes.has(k)) aretes.set(k, [ax, ay, az, bx, by, bz]); };
+    const PAS = 67108864;
+    for (const { p } of pieces) for (const m of p.morceaux) {
+      const T = m.T, A = m.A, ox = m.o[0], oy = m.o[1], oz = m.o[2];
+      const id = new Map(), X = [], Y = [], Zc = [], vid = (x, y, z) => { const k = kp(x, y, z); let r = id.get(k); if (r === undefined) { r = X.length; id.set(k, r); X.push(x); Y.push(y); Zc.push(z); } return r; };
+      const lien = new Map(), sil = [];
+      for (let k = 0; k < T.length; k += 9) {
+        const x1 = T[k] + ox, y1 = T[k + 1] + oy, z1 = T[k + 2] + oz, x2 = T[k + 3] + ox, y2 = T[k + 4] + oy, z2 = T[k + 5] + oz, x3 = T[k + 6] + ox, y3 = T[k + 7] + oy, z3 = T[k + 8] + oz;
+        ras((pu(x1, y1, z1) - u0) / pix + 1, (pv(x1, y1, z1) - v0) / pix + 1, pw(x1, y1, z1), (pu(x2, y2, z2) - u0) / pix + 1, (pv(x2, y2, z2) - v0) / pix + 1, pw(x2, y2, z2), (pu(x3, y3, z3) - u0) / pix + 1, (pv(x3, y3, z3) - v0) / pix + 1, pw(x3, y3, z3));
+        // silhouette : arete commune a un triangle tourne vers l'observateur et un autre qui ne l'est pas
+        const nx = (y2 - y1) * (z3 - z1) - (z2 - z1) * (y3 - y1), ny = (z2 - z1) * (x3 - x1) - (x2 - x1) * (z3 - z1), nz = (x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1), l = Math.hypot(nx, ny, nz);
+        if (!(l > 0)) continue;
+        const face = (nx * W[0] + ny * W[1] + nz * W[2]) / l > 1e-6, a = vid(x1, y1, z1), b = vid(x2, y2, z2), c = vid(x3, y3, z3);
+        for (const [e1, e2] of [[a, b], [b, c], [c, a]]) {
+          if (e1 === e2) continue;
+          const kk = e1 < e2 ? e1 * PAS + e2 : e2 * PAS + e1, prev = lien.get(kk);
+          if (prev === undefined) lien.set(kk, face ? 1 : 0); else if (prev >= 0) { if ((prev === 1) !== face) sil.push(kk); lien.set(kk, -1); }
+        }
+      }
+      for (const kk of sil) { const b = kk % PAS, a = (kk - b) / PAS; ajouter(X[a], Y[a], Zc[a], X[b], Y[b], Zc[b]); }
+      for (let k = 0; k < A.length; k += 6) ajouter(A[k] + ox, A[k + 1] + oy, A[k + 2] + oz, A[k + 3] + ox, A[k + 4] + oy, A[k + 5] + oz);
+    }
+    // 2. visibilite de chaque arete : echantillons le long du trait, compares au tampon de profondeur (et a ses voisins : pentes, bords)
+    const tol = Math.max(1.5 * pix, 0.004 * (w1 - w0));
+    const vu = (px, py, w) => {
+      const ix = Math.floor(px), iy = Math.floor(py); let zmin = Infinity;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const x = ix + dx, y = iy + dy; if (x < 0 || y < 0 || x >= Wp || y >= Hp) continue; const z = Z[y * Wp + x]; if (z > -Infinity && z < zmin) zmin = z; }
+      return zmin === Infinity || w >= zmin - tol;
+    };
+    const bruts = { VISIBLE: [], CACHE: [] };
+    for (const [ax, ay, az, bx, by, bz] of aretes.values()) {
+      const ua = pu(ax, ay, az), va = pv(ax, ay, az), wa = pw(ax, ay, az), ub = pu(bx, by, bz), vb = pv(bx, by, bz), wb = pw(bx, by, bz);
+      const Lp = Math.hypot(ub - ua, vb - va) / pix; if (Lp < 0.3) continue;
+      const n = Math.max(1, Math.ceil(Lp)), etat = new Array(n);
+      for (let k = 0; k < n; k++) { const t = (k + 0.5) / n; etat[k] = vu((ua + (ub - ua) * t - u0) / pix + 1, (va + (vb - va) * t - v0) / pix + 1, wa + (wb - wa) * t); }
+      let d = 0; for (let k = 1; k <= n; k++) if (k === n || etat[k] !== etat[d]) { const t0 = d / n, t1 = k / n; bruts[etat[d] ? "VISIBLE" : "CACHE"].push({ a: [ua + (ub - ua) * t0, va + (vb - va) * t0], b: [ua + (ub - ua) * t1, va + (vb - va) * t1] }); d = k; }
+    }
+    // traits identiques en projection (arete du haut et du bas d'une piece) : un seul ; un trait cache confondu avec un trait vu disparait
+    const cle2 = (s2) => { const ka = Math.round(s2.a[0] * 1e5) + "," + Math.round(s2.a[1] * 1e5), kb = Math.round(s2.b[0] * 1e5) + "," + Math.round(s2.b[1] * 1e5); return ka < kb ? ka + "|" + kb : kb + "|" + ka; };
+    const vus2 = new Set(); bruts.VISIBLE = bruts.VISIBLE.filter((s2) => { const k = cle2(s2); if (vus2.has(k)) return false; vus2.add(k); return true; });
+    bruts.CACHE = bruts.CACHE.filter((s2) => { const k = cle2(s2); if (vus2.has(k)) return false; vus2.add(k); return true; });
+    // 3. cercles, arcs et lignes
+    const res = { segs: [], cercles: [], arcs: [] };
+    regrouper(bruts.VISIBLE, pix, "VISIBLE", res);
+    if (o.caches) regrouper(bruts.CACHE, pix, "CACHE", res);
+    // 4. axes, diametres et cotes
+    const textes = [], mmT = (x) => { const v = x * 1000, a = Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1); return a.replace(".", ","); };
+    const hMM = TAILLES_TEXTE.find((t) => t >= (Math.max(du, dv) * 1000) / 50) || 320, h = hMM / 1000, off = 3 * h, tic = 0.5 * h;
+    const C = (a, b, calque = "COTES") => res.segs.push({ a, b, calque }), T = (p, txt, extra = {}) => textes.push({ p, txt, h: hMM, calque: "COTES", ...extra });
+    const trous = res.cercles.filter((c) => c.calque === "VISIBLE");
+    if (o.trous) {
+      for (const c of trous) { C([c.c[0] - 1.25 * c.r, c.c[1]], [c.c[0] + 1.25 * c.r, c.c[1]], "AXES"); C([c.c[0], c.c[1] - 1.25 * c.r], [c.c[0], c.c[1] + 1.25 * c.r], "AXES"); }
+      const groupes = new Map(); for (const c of trous) { const k = Math.round(c.r * 2 * 1e5); (groupes.get(k) || groupes.set(k, []).get(k)).push(c); }
+      for (const L of groupes.values()) { const c = L.sort((x, y) => y.c[1] - x.c[1] || x.c[0] - y.c[0])[0]; T([c.c[0] + c.r * 0.85 + 0.3 * h, c.c[1] + c.r * 0.85 + 0.3 * h], `${L.length > 1 ? L.length + "x " : ""}Ø${mmT(c.r * 2)}`, { calque: "COTES" }); }
+    }
+    // chaine de cotes horizontale (au-dessous de la piece) ou verticale (a gauche) : ligne, reperes, valeurs
+    const chaineH = (pos, y) => {
+      const P = [...new Set(pos.map((x) => Math.round(x * 1e5)))].sort((a, b) => a - b).map((x) => x / 1e5); if (P.length < 2) return;
+      C([P[0], y], [P[P.length - 1], y]);
+      for (const x of P) { C([x, v0 - 0.3 * h], [x, y - 0.6 * h]); C([x - tic, y - tic], [x + tic, y + tic]); }
+      for (let k = 0; k < P.length - 1; k++) T([(P[k] + P[k + 1]) / 2, y + 0.3 * h], mmT(P[k + 1] - P[k]), { centre: true });
+    };
+    const chaineV = (pos, x) => {
+      const P = [...new Set(pos.map((y) => Math.round(y * 1e5)))].sort((a, b) => a - b).map((y) => y / 1e5); if (P.length < 2) return;
+      C([x, P[0]], [x, P[P.length - 1]]);
+      for (const y of P) { C([u0 - 0.3 * h, y], [x - 0.6 * h, y]); C([x - tic, y - tic], [x + tic, y + tic]); }
+      for (let k = 0; k < P.length - 1; k++) T([x - 0.3 * h, (P[k] + P[k + 1]) / 2], mmT(P[k + 1] - P[k]), { centre: true, rot: 90 });
+    };
+    let niveau = 1;
+    if (o.entraxes && trous.length) { chaineH([u0, u1, ...trous.map((c) => c.c[0])], v0 - off * niveau); chaineV([v0, v1, ...trous.map((c) => c.c[1])], u0 - off * niveau); niveau++; }
+    if (o.cotes) { chaineH([u0, u1], v0 - off * niveau); chaineV([v0, v1], u0 - off * niveau); niveau++; }
+    return { nom: Vw.nom, ...res, textes, largeur: du, hauteur: dv, nTri, pix, titre: { h: hMM * 1.2, dy: off * niveau + 2 * h }, ltscale: Math.max(1, hMM / 2.5) };
+  }
+
   // ---------- Fichiers STEP (resultat d'OpenCascade -> modele de l'appli) ----------
   // res = { meshes: [{ nom, couleur: [r,g,b]|null, pos: Float64Array (mm), idx: Uint32Array, faces: [[premier, dernier, couleur|null]] }],
   //         racine: { nom, meshes: [indices], enfants: [...] } }
@@ -1501,6 +1698,6 @@ const IFC = (() => {
   }
 
   const couleurType = (ifc) => COULEURS[ifc] || [0.62, 0.64, 0.66];
-  return { parse, build, depuisStep, texteIFC, facades, elevation, orientation, FACES, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
+  return { parse, build, depuisStep, projection, VUES2D, CALQUES_VUE, texteIFC, facades, elevation, orientation, FACES, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
 })();
 export default IFC;

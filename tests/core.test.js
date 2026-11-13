@@ -418,3 +418,53 @@ test("STEP : lecture reelle avec OpenCascade (aller-retour avec l'export de Maqu
   const mur = S.produits.find((p) => p.nom === "Wall_Left");
   assert.deepEqual(f(mur.bb), f(parNom("Wall_Left").bb));
 });
+
+// ---------- Vues 2D d'un STEP -> DXF (1.12) ----------
+function cylindreOCC(R, L, N = 48) { // axe Y, de y = 0 a y = L ; 3 faces : flanc, fond y = 0, fond y = L
+  const pos = [], idx = [];
+  for (let k = 0; k < N; k++) { const a = (2 * Math.PI * k) / N; pos.push(R * Math.cos(a), 0, R * Math.sin(a)); }
+  for (let k = 0; k < N; k++) { const a = (2 * Math.PI * k) / N; pos.push(R * Math.cos(a), L, R * Math.sin(a)); }
+  pos.push(0, 0, 0, 0, L, 0); const c0 = 2 * N, c1 = 2 * N + 1;
+  for (let k = 0; k < N; k++) { const k2 = (k + 1) % N; idx.push(k, k2, N + k2, k, N + k2, N + k); }
+  for (let k = 0; k < N; k++) idx.push(c0, (k + 1) % N, k);
+  for (let k = 0; k < N; k++) idx.push(c1, N + k, N + ((k + 1) % N));
+  return { nom: "Axe", couleur: null, pos: Float64Array.from(pos), idx: Uint32Array.from(idx), faces: [[0, 2 * N - 1, null], [2 * N, 3 * N - 1, null], [3 * N, 4 * N - 1, null]] };
+}
+test("Vue 2D d'un cube de 100 mm : 4 traits visibles, rien de cache, deux cotes de 100", () => {
+  const S = IFC.depuisStep({ meshes: [cubeOCC(100)], racine: noeud("", [0]) });
+  const P = IFC.projection(S, [0], "a");
+  assert.equal(P.nom, "Avant");
+  assert.equal(P.segs.filter((s) => s.calque === "VISIBLE").length, 4, "le carre vu de face (les aretes de derriere, identiques, ne comptent pas)");
+  assert.equal(P.segs.filter((s) => s.calque === "CACHE").length, 0);
+  assert.equal(P.textes.filter((t) => t.txt === "100").length, 2, "largeur et hauteur");
+  assert.ok(Math.abs(P.largeur - 0.1) < 1e-6 && Math.abs(P.hauteur - 0.1) < 1e-6);
+});
+test("Vue 2D : un cylindre vu dans l'axe donne un vrai cercle avec son diametre, de cote un rectangle", () => {
+  const S = IFC.depuisStep({ meshes: [cylindreOCC(25, 40)], racine: noeud("", [0]) });
+  const face = IFC.projection(S, [0], "a");
+  assert.ok(face.cercles.length >= 1, "cercle detecte");
+  const c = face.cercles.find((x) => x.calque === "VISIBLE"); assert.ok(c && Math.abs(c.r - 0.025) < 5e-5, `rayon ${c && c.r}`);
+  assert.ok(face.textes.some((t) => /^Ø50/.test(t.txt)), "diametre note Ø50");
+  assert.ok(face.segs.some((s) => s.calque === "AXES"), "axes du trou");
+  const cote = IFC.projection(S, [0], "dessus");
+  assert.equal(cote.cercles.length, 0);
+  assert.ok(Math.abs(cote.largeur - 0.05) < 1e-4 && Math.abs(cote.hauteur - 0.04) < 1e-4, `${cote.largeur} x ${cote.hauteur}`);
+  const sans = IFC.projection(S, [0], "a", { trous: false });
+  assert.ok(!sans.textes.some((t) => /^Ø/.test(t.txt)), "option sans trous");
+});
+test("DXF d'une vue : cercles, calques STEP-, tirets et mention a controler", () => {
+  const S = IFC.depuisStep({ meshes: [cylindreOCC(25, 40)], racine: noeud("", [0]) });
+  const P = IFC.projection(S, [0], "a", { entraxes: true });
+  const d = IFC.dxf(P.segs, "x - COTES CALCULEES PAR MAQUETTE : A CONTROLER", P.textes, { prefixe: "STEP", calques: IFC.CALQUES_VUE, cercles: P.cercles, arcs: P.arcs, hTitre: P.titre.h, dyTitre: P.titre.dy, ltscale: P.ltscale });
+  assert.match(d, /\nCIRCLE\r/); assert.match(d, /STEP-VISIBLE/); assert.match(d, /DASHED/); assert.match(d, /A CONTROLER/); assert.match(d, /%%c50/, "Ø devient %%c pour AutoCAD");
+  assert.ok(!/\nNaN|undefined/.test(d));
+});
+test("Vue 2D : les six vues d'une piece ont les bonnes dimensions (X, Y, Z differents)", () => {
+  const m = cubeOCC(100); for (let i = 0; i < m.pos.length; i += 3) { m.pos[i] *= 3; m.pos[i + 2] *= 2; } // 300 (X) x 100 (Y) x 200 (Z)
+  const S = IFC.depuisStep({ meshes: [m], racine: noeud("", [0]) });
+  const d = (k) => { const P = IFC.projection(S, [0], k); return [Math.round(P.largeur * 1000), Math.round(P.hauteur * 1000)]; };
+  assert.deepEqual(d("dessus"), [300, 100]); assert.deepEqual(d("dessous"), [300, 100]);
+  assert.deepEqual(d("a"), [300, 200]); assert.deepEqual(d("c"), [300, 200]);
+  assert.deepEqual(d("b"), [100, 200]); assert.deepEqual(d("d"), [100, 200]);
+  assert.throws(() => IFC.projection(S, [0], "haut"), /vue inconnue/);
+});

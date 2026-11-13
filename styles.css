@@ -136,6 +136,18 @@ summary .nb { font-family: var(--mono); font-size: 11px; color: var(--muted); fo
 .coupe select { font-size: 12.5px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); padding: 2px 4px; }
 .coupe input[type=range] { width: 120px; accent-color: var(--app); }
 .coupe output { font-family: var(--mono); font-size: 12px; color: var(--muted); min-width: 74px; }
+.pos { display: inline-flex; align-items: center; gap: 3px; }
+.pos input { width: 78px; font: 500 12px var(--mono); text-align: right; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--ink); padding: 3px 6px; }
+.pos input:focus-visible { outline: 2px solid var(--app); outline-offset: 1px; }
+.pos input:disabled, .pos .pm:disabled { opacity: .45; cursor: default; }
+.pos .pm { width: 22px; height: 22px; padding: 0; font-size: 15px; line-height: 1; }
+.pos .u { font-size: 11px; color: var(--muted); margin-left: 2px; }
+@media (max-width: 520px) { .pos .u { display: none; } .pos input { width: 62px; } }
+.avert-calc { display: flex; gap: 9px; align-items: flex-start; margin: 0 0 10px; padding: 8px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); font-size: 12.5px; line-height: 1.45; }
+.avert-calc[hidden] { display: none; }
+.avert-calc svg { flex: none; width: 16px; height: 16px; margin-top: 1px; }
+.avert-calc b { font-weight: 700; }
+.ctl { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); font: 600 10px/1.5 var(--sans); letter-spacing: .02em; text-transform: none; vertical-align: 1px; }
 .mini.dxf { padding: 3px 10px; font-size: 12px; font-weight: 600; background: var(--app); border-color: var(--app); color: var(--on-app); }
 .mini.dxf:disabled { opacity: .4; cursor: default; }
 #bulle { position: absolute; z-index: 3; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 12px; padding: 3px 8px; border-radius: 5px; white-space: nowrap; }
@@ -220,7 +232,9 @@ dialog#dDxf { width: min(900px, calc(100vw - 32px)); }
 .dxf-corps h3 { font-size: 17px; }
 .dxf-corps p { margin: 0; color: var(--muted); font-size: 13px; }
 #apercu { width: 100%; height: min(52vh, 460px); background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; }
-#apercu line { stroke-width: 1.4; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+#apercu line, #apercu circle, #apercu path { stroke-width: 1.4; vector-effect: non-scaling-stroke; stroke-linecap: round; fill: none; }
+#apercu .c-CACHE { stroke-dasharray: 6 4; } #apercu .c-AXES { stroke-dasharray: 10 3 2 3; }
+.c-VISIBLE { stroke: var(--ink); background: var(--ink); } .c-CACHE { stroke: #d0604d; background: repeating-linear-gradient(90deg, #d0604d 0 4px, transparent 4px 6px); } .c-AXES { stroke: #d6336c; background: #d6336c; }
 .c-MUR { stroke: var(--ink); background: var(--ink); } .c-FENETRE { stroke: #0e9aa7; background: #0e9aa7; } .c-PORTE { stroke: #d9822b; background: #d9822b; }
 .c-VITRAGE { stroke: #3b6fe0; background: #3b6fe0; } .c-DALLE { stroke: var(--muted); background: var(--muted); } .c-TOITURE { stroke: #d03b3b; background: #d03b3b; }
 .c-ESCALIER { stroke: #b03bb0; background: #b03bb0; } .c-DIVERS { stroke: #8d969c; background: #8d969c; } .c-VU { stroke: #b8c0c5; background: #b8c0c5; } .c-COTES { stroke: #2f9e44; background: #2f9e44; } .c-NIVEAUX { stroke: #d6336c; background: #d6336c; }
@@ -339,7 +353,7 @@ body.redim.h, body.redim.h * { cursor: row-resize !important; }
 .pli:hover { background: var(--app-soft); color: var(--ink); }
 .app.listes-pliees .pli svg { transform: rotate(180deg); }
 /* barre d'outils 3D compacte, sur une seule ligne */
-.outils { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; right: auto; max-width: calc(100% - 20px); }
+.outils { flex-wrap: wrap; align-items: flex-start; }
 .outils::-webkit-scrollbar { display: none; }
 .seg button { padding: 5px 9px; white-space: nowrap; }
 .outils-ico button { display: grid; place-items: center; padding: 4px 8px; }
@@ -374,4 +388,4 @@ body.redim.h, body.redim.h * { cursor: row-resize !important; }
 footer a, footer button { text-decoration: none; text-underline-offset: 2px; transition: color .15s; }
 footer a:hover, footer button:hover { color: var(--ink); text-decoration: underline; }
 /* barre d'outils 3D centree en haut de la vue */
-@media (min-width: 901px) { .outils { left: 50%; right: auto; transform: translateX(-50%); justify-content: center; } }
+@media (min-width: 901px) { .outils { justify-content: center; } }
