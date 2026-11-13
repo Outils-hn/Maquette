@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.10 — 13 novembre 2026
+
+- Barre d'outils de la 3D centrée ; signature en bas de page sans soulignement, comme les autres applis.
+
 ## 1.9 — 13 novembre 2026
 
 - Nouveauté : disposition « Atelier ». La 3D prend toute la place ; un rail d'icônes à gauche ouvre le contenu, la recherche ou les remarques ; la fiche s'ouvre quand on sélectionne un élément ; les listes se replient en bas. Tous les panneaux s'élargissent en tirant leur bord (double-clic pour replier), et les tailles sont gardées.
