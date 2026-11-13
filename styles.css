@@ -220,7 +220,11 @@ dialog#dDxf { width: min(900px, calc(100vw - 32px)); }
 #apercu line { stroke-width: 1.4; vector-effect: non-scaling-stroke; stroke-linecap: round; }
 .c-MUR { stroke: var(--ink); background: var(--ink); } .c-FENETRE { stroke: #0e9aa7; background: #0e9aa7; } .c-PORTE { stroke: #d9822b; background: #d9822b; }
 .c-VITRAGE { stroke: #3b6fe0; background: #3b6fe0; } .c-DALLE { stroke: var(--muted); background: var(--muted); } .c-TOITURE { stroke: #d03b3b; background: #d03b3b; }
-.c-ESCALIER { stroke: #b03bb0; background: #b03bb0; } .c-DIVERS { stroke: #8d969c; background: #8d969c; } .c-VU { stroke: #b8c0c5; background: #b8c0c5; }
+.c-ESCALIER { stroke: #b03bb0; background: #b03bb0; } .c-DIVERS { stroke: #8d969c; background: #8d969c; } .c-VU { stroke: #b8c0c5; background: #b8c0c5; } .c-COTES { stroke: #2f9e44; background: #2f9e44; } .c-NIVEAUX { stroke: #d6336c; background: #d6336c; }
+#apercu text { font-family: "IBM Plex Mono", ui-monospace, monospace; fill: #2f9e44; } #apercu text.t-NIVEAUX { fill: #d6336c; }
+.note-fac { margin: 8px 12px 10px; font-size: 12px; }
+#tables td .mini { font-size: 12px; padding: 3px 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--app-ink); cursor: pointer; }
+#tables td .mini:hover { border-color: var(--app); }
 #legende { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); }
 #legende i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
 #legende b { font-weight: 400; margin-left: 2px; }

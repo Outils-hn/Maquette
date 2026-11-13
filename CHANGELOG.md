@@ -2,6 +2,12 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.5 — 13 novembre 2026
+
+- Nouveauté : onglet « Façades » avec le métré de chaque face (longueur, hauteur, surfaces brute et nette, fenêtres, portes, tableaux, linteaux, appuis), à copier dans Excel.
+- Nouveauté : élévation de façade en DXF pour AutoCAD, avec les cotes des ouvertures par étage, les dimensions et allèges de chaque ouverture et les niveaux. Bouton « DXF coté » dans l'onglet Façades, ou bouton DXF quand une face (A à D) est affichée.
+- Les faces A à D suivent l'orientation du bâtiment, même s'il est tourné dans la maquette.
+
 ## 1.4 — 13 novembre 2026
 
 - Nouveauté : les très grosses maquettes s'ouvrent (testé jusqu'à 317 Mo), avec une barre de progression, et les fichiers compressés .ifczip aussi. La sélection d'un élément est instantanée.

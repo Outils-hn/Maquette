@@ -873,7 +873,7 @@ const IFC = (() => {
 
 
   // ---------- Coupe 2D et export DXF ----------
-  const CALQUES = { MUR: 7, FENETRE: 4, PORTE: 30, VITRAGE: 5, DALLE: 8, TOITURE: 1, ESCALIER: 6, DIVERS: 9, VU: 253, TEXTE: 2 };
+  const CALQUES = { MUR: 7, FENETRE: 4, PORTE: 30, VITRAGE: 5, DALLE: 8, TOITURE: 1, ESCALIER: 6, DIVERS: 9, VU: 253, TEXTE: 2, COTES: 3, NIVEAUX: 1 };
   function calqueDe(p, m) {
     if (m && m.verre) return "VITRAGE";
     if (/^IFCWALL|IFCCURTAINWALL/.test(p.ifc)) return "MUR";
@@ -942,13 +942,14 @@ const IFC = (() => {
     return out;
   }
   const ascii = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\x20-\x7e]/g, "?");
-  function dxf(segs, titre) {
+  // textes : [{ p: [x, y] (m), h (mm), txt, calque, centre }]
+  function dxf(segs, titre, textes = []) {
     const f = (x) => (Math.round(x * 1000 * 1000) / 1000).toString(); // m -> mm
     const L = []; const g = (c, v) => L.push(String(c), String(v));
     let mn = [Infinity, Infinity], mx = [-Infinity, -Infinity];
     for (const s of segs) for (const q of [s.a, s.b]) { mn = [Math.min(mn[0], q[0]), Math.min(mn[1], q[1])]; mx = [Math.max(mx[0], q[0]), Math.max(mx[1], q[1])]; }
     if (!isFinite(mn[0])) { mn = [0, 0]; mx = [1, 1]; }
-    const calques = [...new Set(segs.map((s) => s.calque)), "TEXTE"];
+    const calques = [...new Set([...segs.map((s) => s.calque), ...textes.map((t) => t.calque || "TEXTE"), "TEXTE"])];
     g(0, "SECTION"); g(2, "HEADER"); g(9, "$ACADVER"); g(1, "AC1009"); g(9, "$INSBASE"); g(10, 0); g(20, 0); g(30, 0);
     g(9, "$EXTMIN"); g(10, f(mn[0])); g(20, f(mn[1] - 0.6)); g(30, 0); g(9, "$EXTMAX"); g(10, f(mx[0])); g(20, f(mx[1])); g(30, 0); g(0, "ENDSEC");
     g(0, "SECTION"); g(2, "TABLES");
@@ -958,9 +959,167 @@ const IFC = (() => {
     g(0, "ENDTAB"); g(0, "ENDSEC");
     g(0, "SECTION"); g(2, "ENTITIES");
     for (const s of segs) { g(0, "LINE"); g(8, `IFC-${s.calque}`); g(10, f(s.a[0])); g(20, f(s.a[1])); g(30, 0); g(11, f(s.b[0])); g(21, f(s.b[1])); g(31, 0); }
+    for (const t of textes) {
+      g(0, "TEXT"); g(8, `IFC-${t.calque || "TEXTE"}`); g(10, f(t.p[0])); g(20, f(t.p[1])); g(30, 0); g(40, t.h || 100); g(1, ascii(t.txt));
+      if (t.centre) { g(72, 1); g(11, f(t.p[0])); g(21, f(t.p[1])); g(31, 0); }
+    }
     g(0, "TEXT"); g(8, "IFC-TEXTE"); g(10, f(mn[0])); g(20, f(mn[1] - 0.5)); g(30, 0); g(40, 150); g(1, ascii(titre));
     g(0, "ENDSEC"); g(0, "EOF");
     return L.join("\r\n") + "\r\n";
+  }
+
+  // ---------- Facades : murs exterieurs de chaque face, ouvertures, metre et elevation cotee ----------
+  // Face A vue depuis -Y, B depuis +X, C depuis +Y, D depuis -X (comme les vues de l'appli).
+  // d : normale exterieure de la face ; u(p) : abscisse horizontale vue de l'exterieur (meme repere que les coupes)
+  // Les faces suivent l'orientation principale du batiment (angle t, en radians) : un batiment tourne a ses vraies facades
+  function facesOrientees(t = 0) {
+    const c = Math.cos(t), s2 = Math.sin(t), R = (v) => [c * v[0] - s2 * v[1], s2 * v[0] + c * v[1], 0];
+    const def = { a: ["Face A", [0, -1, 0], [1, 0, 0]], b: ["Face B", [1, 0, 0], [0, 1, 0]], c: ["Face C", [0, 1, 0], [-1, 0, 0]], d: ["Face D", [-1, 0, 0], [0, -1, 0]] };
+    return Object.fromEntries(Object.entries(def).map(([k, [nom, d, r]]) => { const dd = R(d), rr = R(r); return [k, { nom, d: dd, r: rr, u: (p) => p[0] * rr[0] + p[1] * rr[1] }]; }));
+  }
+  const FACES = facesOrientees(0);
+  // orientation principale : angle des murs (modulo 90°) le plus represente, ramene entre -45° et 45°
+  function orientation(model) {
+    const h = new Float64Array(90);
+    for (const p of model.produits) {
+      if (!estMur(p)) continue;
+      const n = normaleMur(p); if (!n) continue;
+      const a = (Math.atan2(n[1], n[0]) * 180) / Math.PI, w = (p.bb.max[2] - p.bb.min[2]) * Math.hypot(p.bb.max[0] - p.bb.min[0], p.bb.max[1] - p.bb.min[1]);
+      const m = ((a % 90) + 90) % 90, b0 = Math.floor(m), f = m - b0; h[b0 % 90] += w * (1 - f); h[(b0 + 1) % 90] += w * f;
+    }
+    const lisse = (t) => h[t] + h[(t + 1) % 90] + h[(t + 89) % 90];
+    let best = 0; for (let t = 1; t < 90; t++) if (lisse(t) > lisse(best)) best = t;
+    if (!(lisse(best) > 0)) return 0;
+    let deg = best + (h[(best + 1) % 90] - h[(best + 89) % 90]) / lisse(best);
+    if (deg >= 45) deg -= 90; if (Math.abs(deg) <= 2) deg = 0; // quasi aligne : on garde les axes
+    return (deg * Math.PI) / 180;
+  }
+  const estMur = (p) => /^IFCWALL|^IFCCURTAINWALL/.test(p.ifc);
+  // orientation dominante d'un mur : normale horizontale de ses plus grandes faces (histogramme par degre)
+  function normaleMur(p) {
+    const h = new Float64Array(180);
+    for (const m of p.morceaux) {
+      const T = m.T;
+      for (let i = 0; i < T.length; i += 9) {
+        const ux = T[i + 3] - T[i], uy = T[i + 4] - T[i + 1], uz = T[i + 5] - T[i + 2], vx = T[i + 6] - T[i], vy = T[i + 7] - T[i + 1], vz = T[i + 8] - T[i + 2];
+        const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, a = Math.hypot(nx, ny, nz);
+        if (!(a > 0) || Math.abs(nz) > 0.3 * a) continue;
+        let t = Math.round((Math.atan2(ny, nx) * 180) / Math.PI); t = ((t % 180) + 180) % 180; h[t] += a;
+      }
+    }
+    const lisse = (t) => h[t] + h[(t + 1) % 180] + h[(t + 179) % 180];
+    let best = 0; for (let t = 1; t < 180; t++) if (lisse(t) > lisse(best)) best = t;
+    if (!(lisse(best) > 0)) return null;
+    // moyenne ponderee sur les trois degres voisins : angle precis, sans decalage d'un degre
+    const a = best + (h[(best + 1) % 180] - h[(best + 179) % 180]) / lisse(best), r = (a * Math.PI) / 180;
+    return [Math.cos(r), Math.sin(r), 0];
+  }
+  // etendue d'un element dans le repere d'une face (abscisse u, hauteur z, profondeur f), sur ses vrais sommets
+  function boite(p, F) {
+    let u0 = Infinity, u1 = -Infinity, f0 = Infinity, f1 = -Infinity;
+    const r = F.r || [1, 0, 0], d = F.d;
+    for (const m of p.morceaux) { const T = m.T, o = m.o; for (let i = 0; i < T.length; i += 3) { const x = T[i] + o[0], y = T[i + 1] + o[1], u = x * r[0] + y * r[1], f = x * d[0] + y * d[1]; if (u < u0) u0 = u; if (u > u1) u1 = u; if (f < f0) f0 = f; if (f > f1) f1 = f; } }
+    return { u0, u1, z0: p.bb.min[2], z1: p.bb.max[2], f0, f1 };
+  }
+  function facades(model, t = orientation(model)) {
+    const FACES = facesOrientees(t);
+    const murs = model.produits.map((p, i) => ({ p, i })).filter(({ p }) => estMur(p));
+    for (const w of murs) w.n = normaleMur(w.p);
+    const etageDe = new Map(model.etages.map((e) => [e.id, e]));
+    const out = {}, extDe = {}, bb = model.bbTout, centre = bb.min.map((v, i) => (v + bb.max[i]) / 2);
+    // 1) murs exterieurs de chaque face
+    for (const [cle, F] of Object.entries(FACES)) {
+      const prof = (q) => dot(q, F.d);
+      const box = (p) => boite(p, F);
+      const tous = murs.map((w) => ({ ...w, b: box(w.p) }));
+      const cand = tous.filter((w) => w.n && Math.abs(dot(w.n, F.d)) > 0.82);
+      // mur exterieur : rien devant lui (vu depuis l'exterieur) sur la majorite de sa longueur
+      const ext = cand.filter((w) => {
+        let libres = 0; const zm = (w.b.z0 + w.b.z1) / 2;
+        for (const f of [0.2, 0.5, 0.8]) {
+          const u = w.b.u0 + (w.b.u1 - w.b.u0) * f;
+          const cache = tous.some((o) => o.i !== w.i && (o.b.f0 + o.b.f1) / 2 > w.b.f1 + 0.05 && o.b.u0 < u && o.b.u1 > u && o.b.z0 < zm && o.b.z1 > zm);
+          if (!cache) libres++;
+        }
+        return libres >= 2;
+      });
+      extDe[cle] = ext;
+    }
+    // 2) un mur degage des deux cotes (faces opposees) va a la face vers laquelle il est tourne
+    const cote = (w, F) => { const c = w.p.bb.min.map((v, i) => (v + w.p.bb.max[i]) / 2); return dot(sub(c, centre), F.d); };
+    for (const [x, y] of [["a", "c"], ["b", "d"]]) {
+      const iy = new Set(extDe[y].map((w) => w.i)), deux = extDe[x].filter((w) => iy.has(w.i)).map((w) => w.i);
+      for (const i of deux) { const w = extDe[x].find((v) => v.i === i); const garderX = cote(w, FACES[x]) >= cote(w, FACES[y]); extDe[garderX ? y : x] = extDe[garderX ? y : x].filter((v) => v.i !== i); }
+    }
+    // 3) ouvertures et metre
+    for (const [cle, F] of Object.entries(FACES)) {
+      const ext = extDe[cle], prof = (q) => dot(q, F.d);
+      const box = (p) => boite(p, F);
+      const idsExt = new Set(ext.map((w) => w.p.id));
+      const ouvertures = [];
+      model.produits.forEach((p, i) => {
+        if ((p.ifc !== "IFCWINDOW" && p.ifc !== "IFCDOOR") || !idsExt.has(p.mur)) return;
+        const b = box(p), et = etageDe.get(p.etage);
+        ouvertures.push({
+          i, nom: p.nom, porte: p.ifc === "IFCDOOR", u0: b.u0, u1: b.u1, z0: b.z0, z1: b.z1,
+          largeur: p.largeur || Math.round((b.u1 - b.u0) * 1000), hauteur: p.hauteur || Math.round((b.z1 - b.z0) * 1000),
+          allege: et ? Math.round((b.z0 - et.elev) * 1000) : null, etage: p.etage,
+        });
+      });
+      if (!ext.length) { out[cle] = { cle, nom: F.nom, F, angle: t, murs: [], ouvertures: [], metre: null }; continue; }
+      const u0 = minDe(ext.map((w) => w.b.u0)), u1 = maxDe(ext.map((w) => w.b.u1)), z0 = minDe(ext.map((w) => w.b.z0)), z1 = maxDe(ext.map((w) => w.b.z1));
+      const brute = ext.reduce((s2, w) => s2 + (w.p.surf ? w.p.surf.brute : (w.b.u1 - w.b.u0) * (w.b.z1 - w.b.z0)), 0);
+      const sOuv = ouvertures.reduce((s2, o) => s2 + (o.largeur * o.hauteur) / 1e6, 0);
+      const fen = ouvertures.filter((o) => !o.porte);
+      out[cle] = {
+        cle, nom: F.nom, F, angle: t, murs: ext.map((w) => w.i), ouvertures, u0, u1, z0, z1,
+        metre: {
+          longueur: u1 - u0, hauteur: z1 - z0, brute, ouvertures: sOuv, nette: brute - sOuv, fenetres: fen.length, portes: ouvertures.length - fen.length,
+          // tableaux : les deux montants de chaque ouverture ; linteaux : le haut ; appuis : le bas des fenetres
+          tableaux: ouvertures.reduce((s2, o) => s2 + (2 * o.hauteur) / 1000, 0), linteaux: ouvertures.reduce((s2, o) => s2 + o.largeur / 1000, 0), appuis: fen.reduce((s2, o) => s2 + o.largeur / 1000, 0),
+        },
+      };
+    }
+    return out;
+  }
+  // Elevation d'une face : traits des murs exterieurs et de leurs ouvertures, puis cotes et niveaux
+  function elevation(model, fac, avecCotes = true) {
+    const F = fac.F || FACES[fac.cle], segs = [], textes = [];
+    const v2 = (q) => [F.u(q), q[2]];
+    for (const i of [...fac.murs, ...fac.ouvertures.map((o) => o.i)]) {
+      const p = model.produits[i];
+      for (const m of p.morceaux) { const calque = calqueDe(p, m); for (const [a, b] of aretesDe(m)) segs.push({ a: v2(a), b: v2(b), calque, pi: i }); }
+    }
+    const traits = fusionner(segs);
+    if (!avecCotes || !fac.murs.length) return { segs: traits, textes };
+    const C = (a, b) => traits.push({ a, b, calque: "COTES" }), T = (p, txt, h = 80, calque = "COTES") => textes.push({ p, txt, h, calque, centre: true });
+    const tic = 0.05, mmT = (x) => String(Math.round(x * 1000));
+    // une chaine de cotes par etage (ouvertures de cet etage), puis la cote totale
+    const parEtage = new Map(); for (const o of fac.ouvertures) { const k = o.etage ?? "-"; if (!parEtage.has(k)) parEtage.set(k, []); parEtage.get(k).push(o); }
+    const ordre = [...parEtage.entries()].sort((x, y) => minDe(x[1].map((o) => o.z0)) - minDe(y[1].map((o) => o.z0)));
+    let zc = fac.z0 - 0.6;
+    const chaine = (pos, z) => {
+      const P = [...new Set(pos.map((x) => Math.round(x * 1000)))].sort((x, y) => x - y).map((x) => x / 1000);
+      if (P.length < 2) return;
+      C([P[0], z], [P[P.length - 1], z]);
+      for (const x of P) { C([x, fac.z0 - 0.05], [x, z - 0.05]); C([x - tic, z - tic], [x + tic, z + tic]); }
+      for (let k = 0; k < P.length - 1; k++) T([(P[k] + P[k + 1]) / 2, z + 0.04], mmT(P[k + 1] - P[k]));
+    };
+    for (const [, L] of ordre) { chaine([fac.u0, fac.u1, ...L.flatMap((o) => [o.u0, o.u1])], zc); zc -= 0.45; }
+    chaine([fac.u0, fac.u1], zc);
+    // chaque ouverture : largeur x hauteur et allege
+    for (const o of fac.ouvertures) {
+      const cx = (o.u0 + o.u1) / 2, cz = (o.z0 + o.z1) / 2;
+      T([cx, cz + 0.02], `${o.largeur} x ${o.hauteur}`, 70);
+      if (!o.porte && o.allege != null) T([cx, cz - 0.12], `all. ${o.allege}`, 60);
+    }
+    // niveaux des etages, a gauche de la facade
+    for (const e of model.etages) {
+      if (e.elev < fac.z0 - 0.5 || e.elev > fac.z1 + 0.5) continue;
+      traits.push({ a: [fac.u0 - 1.6, e.elev], b: [fac.u0 - 0.05, e.elev], calque: "NIVEAUX" });
+      textes.push({ p: [fac.u0 - 0.85, e.elev + 0.05], txt: `${e.elev >= 0 ? "+" : ""}${e.elev.toFixed(3)} ${e.nom}`, h: 80, calque: "NIVEAUX", centre: true });
+    }
+    return { segs: traits, textes };
   }
 
 
@@ -1168,6 +1327,6 @@ const IFC = (() => {
   }
 
   const couleurType = (ifc) => COULEURS[ifc] || [0.62, 0.64, 0.66];
-  return { parse, build, texteIFC, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
+  return { parse, build, texteIFC, facades, elevation, orientation, FACES, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
 })();
 export default IFC;

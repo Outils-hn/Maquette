@@ -76,6 +76,25 @@ await step("Vues, coupe et DXF", async () => {
   await c.close();
 });
 
+await step("Facades : metre et elevation cotee", async () => {
+  const { c, page } = await ouvrir();
+  await exemple(page);
+  await page.click('[data-onglet="fac"]'); await page.waitForTimeout(200);
+  verif("Onglet Facades : 4 faces avec metre", (await page.locator("#tables tbody tr").count()) === 4 && /33,6/.test(await txt(page, "#tables")), (await txt(page, "#tables tbody tr >> nth=0")).slice(0, 80));
+  await page.screenshot({ path: `${OUT}/11-facades.png` });
+  await page.click('[data-vue="a"]'); await page.waitForTimeout(200);
+  verif("Face A affichee : le bouton DXF exporte son elevation", !(await page.isDisabled("#bDxf")));
+  await page.click("#bDxf"); await page.waitForTimeout(300);
+  verif("Fenetre DXF d'elevation : cotes et niveaux", /Élévation DXF : Face A/.test(await txt(page, "#dxf-titre")) && (await page.locator("#apercu line.c-COTES").count()) > 5 && (await page.locator("#apercu text").count()) > 5, await txt(page, "#dInfo"));
+  await page.screenshot({ path: `${OUT}/12-elevation.png` });
+  const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 5000 }), page.click("#dTelecharger")]);
+  await dl.saveAs(`${OUT}/elevation.dxf`);
+  const t = (await import("node:fs")).readFileSync(`${OUT}/elevation.dxf`, "utf8");
+  verif("Telechargement de l'elevation DXF (calques cotes et niveaux)", /elevation-face-a\.dxf$/.test(dl.suggestedFilename()) && /IFC-COTES/.test(t) && /IFC-NIVEAUX/.test(t), dl.suggestedFilename());
+  await page.click("#dFermer");
+  await c.close();
+});
+
 await step("Export STEP", async () => {
   const { c, page } = await ouvrir();
   await exemple(page);
