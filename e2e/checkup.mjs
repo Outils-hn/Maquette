@@ -76,6 +76,20 @@ await step("Vues, coupe et DXF", async () => {
   await c.close();
 });
 
+await step("Export STEP", async () => {
+  const { c, page } = await ouvrir();
+  await exemple(page);
+  await page.click("#bStep"); await page.waitForTimeout(200);
+  verif("Fenetre STEP : sans selection, l'element selectionne est grise", await page.locator('#formStep input[value="sel"]').isDisabled() && /71 pi/.test(await txt(page, "#sInfo")), await txt(page, "#sInfo"));
+  await page.screenshot({ path: `${OUT}/10-step.png` });
+  const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 8000 }), page.click("#sOk")]);
+  await dl.saveAs(`${OUT}/maquette.stp`);
+  const t = (await import("node:fs")).readFileSync(`${OUT}/maquette.stp`, "utf8");
+  verif("Telechargement du STEP (toute la maquette affichee)", /\.stp$/.test(dl.suggestedFilename()) && /^ISO-10303-21;/.test(t) && (t.match(/=PRODUCT\(/g) || []).length === 72, `${dl.suggestedFilename()} ${(t.length / 1e6).toFixed(2)} Mo`);
+  verif("Toast apres l'export STEP", /STEP export/.test(await txt(page, "#toast")), await txt(page, "#toast"));
+  await c.close();
+});
+
 await step("Mesure", async () => {
   const { c, page } = await ouvrir();
   await exemple(page);

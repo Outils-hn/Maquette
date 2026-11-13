@@ -248,3 +248,11 @@ dialog#dDxf { width: min(900px, calc(100vw - 32px)); }
 @view-transition { navigation: auto; }
 .brand > svg:first-of-type { view-transition-name: logo; }
 @media (max-width: 760px) { .coupe { flex-wrap: wrap; max-width: 100%; } .coupe input[type=range] { flex: 1; min-width: 80px; } }
+
+fieldset.choix { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 6px; }
+fieldset.choix legend { padding: 0 4px; }
+fieldset.choix label { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+fieldset.choix input { accent-color: var(--app); }
+fieldset.choix label:has(input:disabled) { opacity: .45; cursor: default; }
+dialog#dStep { width: min(460px, calc(100vw - 32px)); }
+@media (max-width: 760px) { #bStep { display: none; } }
