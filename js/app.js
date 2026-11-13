@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.1";
+import IFC from "./core.js?v=1.2";
 
-const VERSION = "1.1";
+const VERSION = "1.2";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -444,7 +444,7 @@ const RESERVEE_CONCEPTEUR = true;
     const url = URL.createObjectURL(new Blob([r.texte], { type: "application/step" }));
     const a = document.createElement("a"); a.href = url; a.download = nom; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
-    dS.close(); toast(`STEP exporté : ${r.nbPieces} pièce${r.nbPieces > 1 ? "s" : ""}, ${r.nbFaces.toLocaleString("fr-CH")} faces.`);
+    dS.close(); toast(`STEP exporté : ${r.nbPieces} pièce${r.nbPieces > 1 ? "s" : ""}, ${r.nbSolides} solide${r.nbSolides > 1 ? "s" : ""}${r.nbSurfaces ? ` (+ ${r.nbSurfaces} forme${r.nbSurfaces > 1 ? "s" : ""} ouverte${r.nbSurfaces > 1 ? "s" : ""} en surfaces)` : ""}.`);
   });
 
   // ZIP sans compression (le cadre claude.ai n'accepte pas l'extension .dxf, mais accepte .zip)
@@ -556,7 +556,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.1", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.2", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     w.onmessage = (e) => { w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier : ${e.data.err}`); };
     w.onerror = (e) => { e.preventDefault(); w.terminate(); direct(); };
     w.postMessage(texte);

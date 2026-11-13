@@ -582,7 +582,54 @@ const IFC = (() => {
     return out;
   }
 
-  // ---------- Export STEP (AP214) : un solide a faces planes par forme, une piece par element, le tout en assemblage ----------
+  // Faces planes d'une forme, en cles de sommets, avec les aretes rendues coherentes entre faces voisines
+  // (chaque arete d'un solide ferme est parcourue une fois dans chaque sens) et orientees vers l'exterieur.
+  function topologie(tris) {
+    const cle3 = (q) => q.map((v) => Math.round(v * 1e5)).join(",");
+    const pts = new Map(), vus = new Set();
+    // triangles en double (ex. tableaux d'ouverture generes deux fois) : on n'en garde qu'un
+    tris = tris.filter((t) => { const k = t.map(cle3).sort().join("/"); if (vus.has(k)) return false; vus.add(k); return true; });
+    let faces = facesPlanes(tris).map((f) => f.boucles.map((B) => B.map((q) => { const k = cle3(q); if (!pts.has(k)) pts.set(k, q); return k; })));
+    // sommets utiles = coins d'au moins une face ; on les reinsere sur les aretes des autres faces qui passent dessus
+    const coins = new Set(); for (const F of faces) for (const B of F) for (const k of B) coins.add(k);
+    const V = [...coins].map((k) => [k, pts.get(k)]);
+    const surArete = (a, b) => {
+      const A = pts.get(a), ab = sub(pts.get(b), A), L2 = dot(ab, ab), r = [];
+      for (const [k, q] of V) { if (k === a || k === b) continue; const aq = sub(q, A), t = dot(aq, ab) / L2; if (t > 1e-7 && t < 1 - 1e-7 && len(cross(aq, ab)) / Math.sqrt(L2) < 2e-6) r.push([t, k]); }
+      return r.sort((x, y) => x[0] - y[0]).map((x) => x[1]);
+    };
+    faces = faces.map((F) => F.map((B) => { const R = []; B.forEach((a, i) => { R.push(a, ...surArete(a, B[(i + 1) % B.length])); }); return R.filter((k, i) => k !== R[(i + 1) % R.length]); }).filter((B) => B.length >= 3)).filter((F) => F.length);
+    const newell = (B) => { const n = [0, 0, 0]; B.forEach((k, i) => { const p = pts.get(k), q = pts.get(B[(i + 1) % B.length]); n[0] += (p[1] - q[1]) * (p[2] + q[2]); n[1] += (p[2] - q[2]) * (p[0] + q[0]); n[2] += (p[0] - q[0]) * (p[1] + q[1]); }); return n; };
+    // dans une face, les trous tournent a l'inverse du contour
+    for (const F of faces) { const n0 = newell(F[0]); for (let i = 1; i < F.length; i++) if (dot(newell(F[i]), n0) > 0) F[i].reverse(); }
+    // voisinage par aretes
+    const usage = new Map();
+    faces.forEach((F, fi) => F.forEach((B) => B.forEach((a, j) => { const b = B[(j + 1) % B.length], k = a < b ? a + "|" + b : b + "|" + a; if (!usage.has(k)) usage.set(k, []); usage.get(k).push([fi, a < b]); })));
+    let ferme = [...usage.values()].every((u) => u.length === 2);
+    if (ferme) {
+      // orientation coherente de proche en proche : une arete commune est parcourue en sens opposes
+      const sens = new Array(faces.length).fill(0);
+      for (let s0 = 0; s0 < faces.length && ferme; s0++) {
+        if (sens[s0]) continue; sens[s0] = 1; const pile = [s0];
+        while (pile.length && ferme) {
+          const fi = pile.pop();
+          for (const B of faces[fi]) B.forEach((a, j) => {
+            const b = B[(j + 1) % B.length], k = a < b ? a + "|" + b : b + "|" + a;
+            const [x, y] = usage.get(k), [mi, autre] = x[0] === fi ? [x, y] : [y, x];
+            if (autre[0] === fi) { ferme = false; return; }
+            const voulu = sens[fi] * (mi[1] === autre[1] ? -1 : 1);
+            if (!sens[autre[0]]) { sens[autre[0]] = voulu; pile.push(autre[0]); } else if (sens[autre[0]] !== voulu) ferme = false;
+          });
+        }
+      }
+      if (ferme) faces.forEach((F, fi) => { if (sens[fi] < 0) F.forEach((B) => B.reverse()); });
+      // volume signe : negatif = faces tournees vers l'interieur, on retourne tout
+      if (ferme) { let vol = 0; for (const F of faces) for (const B of F) vol += dot(newell(B), pts.get(B[0])); if (vol < 0) faces.forEach((F) => F.forEach((B) => B.reverse())); }
+    }
+    return { pts, faces, ferme };
+  }
+
+  // ---------- Export STEP (AP214) : un solide B-rep a faces planes par forme, une piece par element, le tout en assemblage ----------
   // Texte du STEP : caracteres hors ASCII codes en \X2\....\X0\ (lisible par tous les logiciels)
   const stepStr = (t) => "'" + String(t ?? "").replace(/\\/g, "\\\\").replace(/'/g, "''").replace(/[^\x20-\x7e]+/g, (m) => "\\X2\\" + [...m].map((c) => c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")).join("") + "\\X0\\") + "'";
   function step(model, indices, opts = {}) {
@@ -613,34 +660,44 @@ const IFC = (() => {
     const axR = axe();
     const srR = e(`SHAPE_REPRESENTATION('',(#${axR}),#${gctx})`);
     e(`SHAPE_DEFINITION_REPRESENTATION(#${racine.s},#${srR})`);
-    let nbPieces = 0, nbFaces = 0;
+    let nbPieces = 0, nbFaces = 0, nbSolides = 0, nbSurfaces = 0;
     indices.forEach((pi, k) => {
       const p = model.produits[pi];
       // une forme fermee par element de geometrie IFC (src) : cadre et vitre restent deux solides
       const groupes = new Map();
       for (const m of p.morceaux) { if (!groupes.has(m.src)) groupes.set(m.src, []); groupes.get(m.src).push(...m.tris); }
-      const breps = [];
+      const breps = []; let toutSolide = true;
       for (const tris of groupes.values()) {
-        const pts = new Map(), faces = [];
-        const pt = (q) => { const c = q.map((v) => num(v * 1000)).join(","); if (!pts.has(c)) pts.set(c, e(`CARTESIAN_POINT('',(${c}))`)); return pts.get(c); };
-        for (const f of facesPlanes(tris)) {
-          const bounds = [];
-          f.boucles.forEach((B, i) => {
-            const ids = B.map(pt); if (new Set(ids).size < 3) return;
-            const loop = e(`POLY_LOOP('',(${ids.map((x) => "#" + x).join(",")}))`);
-            bounds.push(e(`${i === 0 ? "FACE_OUTER_BOUND" : "FACE_BOUND"}('',#${loop},.T.)`));
+        const S = topologie(tris);
+        if (!S.faces.length) continue;
+        nbFaces += S.faces.length;
+        // sommets et aretes partages entre faces : c'est ce qui fait un vrai solide pour AutoCAD
+        const vtx = new Map(), ar = new Map();
+        const sommet = (k) => { if (!vtx.has(k)) vtx.set(k, e(`VERTEX_POINT('',#${e(`CARTESIAN_POINT('',(${S.pts.get(k).map((v) => num(v * 1000)).join(",")}))`)})`)); return vtx.get(k); };
+        const arete = (a, b) => {
+          const k = a < b ? a + "|" + b : b + "|" + a, sens = a < b;
+          if (!ar.has(k)) {
+            const [x, y] = a < b ? [a, b] : [b, a], P = S.pts.get(x), Q = S.pts.get(y), d = sub(Q, P), l = len(d);
+            const ln = e(`LINE('',#${e(`CARTESIAN_POINT('',(${P.map((v) => num(v * 1000)).join(",")}))`)},#${e(`VECTOR('',#${e(`DIRECTION('',(${d.map((v) => num(v / l)).join(",")}))`)},${num(l * 1000)})`)})`);
+            ar.set(k, e(`EDGE_CURVE('',#${sommet(x)},#${sommet(y)},#${ln},.T.)`));
+          }
+          return `#${e(`ORIENTED_EDGE('',*,*,#${ar.get(k)},${sens ? ".T." : ".F."})`)}`;
+        };
+        const faces = S.faces.map((F) => {
+          const bounds = F.map((B, i) => {
+            const loop = e(`EDGE_LOOP('',(${B.map((a, j) => arete(a, B[(j + 1) % B.length])).join(",")}))`);
+            return `#${e(`${i === 0 ? "FACE_OUTER_BOUND" : "FACE_BOUND"}('',#${loop},.T.)`)}`;
           });
-          if (bounds.length) faces.push(e(`FACE_SURFACE('',(${bounds.map((x) => "#" + x).join(",")}),#${plan(f.boucles[0])},.T.)`));
-        }
-        if (!faces.length) continue;
-        nbFaces += faces.length;
-        const sh = e(`CLOSED_SHELL('',(${faces.map((i) => "#" + i).join(",")}))`);
-        breps.push(e(`FACETED_BREP(${stepStr(p.nom)},#${sh})`));
+          return `#${e(`ADVANCED_FACE('',(${bounds.join(",")}),#${plan(F[0].map((k) => S.pts.get(k)))},.T.)`)}`;
+        });
+        if (S.ferme) breps.push(e(`MANIFOLD_SOLID_BREP(${stepStr(p.nom)},#${e(`CLOSED_SHELL('',(${faces.join(",")}))`)})`));
+        else { toutSolide = false; breps.push(e(`SHELL_BASED_SURFACE_MODEL(${stepStr(p.nom)},(#${e(`OPEN_SHELL('',(${faces.join(",")}))`)}))`)); }
+        S.ferme ? nbSolides++ : nbSurfaces++;
       }
       if (!breps.length) return;
       const pr = produit(p.nom);
       const ax = axe();
-      const sr = e(`FACETED_BREP_SHAPE_REPRESENTATION(${stepStr(p.nom)},(${[...breps, ax].map((i) => "#" + i).join(",")}),#${gctx})`);
+      const sr = e(`${toutSolide ? "ADVANCED_BREP_SHAPE_REPRESENTATION" : "SHAPE_REPRESENTATION"}(${stepStr(p.nom)},(${[...breps, ax].map((i) => "#" + i).join(",")}),#${gctx})`);
       e(`SHAPE_DEFINITION_REPRESENTATION(#${pr.s},#${sr})`);
       const nauo = e(`NEXT_ASSEMBLY_USAGE_OCCURRENCE('${k + 1}',${stepStr(p.nom)},'',#${racine.d},#${pr.d},$)`);
       const pds = e(`PRODUCT_DEFINITION_SHAPE('','',#${nauo})`);
@@ -661,13 +718,13 @@ const IFC = (() => {
     }
     const date = (opts.date || new Date().toISOString()).slice(0, 19);
     const nomFichier = (opts.fichier || "maquette.stp").replace(/'/g, "");
-    const texte = ["ISO-10303-21;", "HEADER;", "FILE_DESCRIPTION(('Export Maquette (facettes)'),'2;1');",
+    const texte = ["ISO-10303-21;", "HEADER;", "FILE_DESCRIPTION(('Export Maquette'),'2;1');",
       `FILE_NAME(${stepStr(nomFichier)},'${date}',(''),(''),'Maquette','Maquette','');`,
       "FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));", "ENDSEC;", "DATA;", ...L, "ENDSEC;", "END-ISO-10303-21;", ""].join("\n");
-    return { texte, nbPieces, nbFaces };
+    return { texte, nbPieces, nbFaces, nbSolides, nbSurfaces };
   }
 
   const couleurType = (ifc) => COULEURS[ifc] || [0.62, 0.64, 0.66];
-  return { build, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, calqueDe, CALQUES, couleurType, VERRE };
+  return { build, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, calqueDe, CALQUES, couleurType, VERRE };
 })();
 export default IFC;

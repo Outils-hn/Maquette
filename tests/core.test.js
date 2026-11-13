@@ -110,7 +110,11 @@ test("export STEP : assemblage AP214 en mm, une piece par element, faces planes"
   assert.equal(tout.nbPieces, 71);
   assert.equal((t.match(/=PRODUCT\(/g) || []).length, 72);
   assert.equal((t.match(/NEXT_ASSEMBLY_USAGE_OCCURRENCE\(/g) || []).length, 71);
-  assert.ok((t.match(/=FACETED_BREP\(/g) || []).length >= 71);
+  // vrais solides B-rep (AutoCAD les importe en solides 3D, pas en maillage)
+  assert.equal((t.match(/=FACETED_BREP\(/g) || []).length, 0);
+  assert.ok(tout.nbSolides >= 100, String(tout.nbSolides));
+  assert.ok(tout.nbSurfaces <= 2, String(tout.nbSurfaces));
+  assert.equal((t.match(/=MANIFOLD_SOLID_BREP\(/g) || []).length, tout.nbSolides);
   // les references #n pointent toutes vers des entites definies
   const def = new Set([...t.matchAll(/^#(\d+)=/gm)].map((m) => m[1]));
   for (const m of t.matchAll(/#(\d+)/g)) assert.ok(def.has(m[1]), "#" + m[1]);
@@ -120,6 +124,12 @@ test("export STEP : assemblage AP214 en mm, une piece par element, faces planes"
   assert.equal(w.nbPieces, 1);
   assert.ok(w.nbFaces < 100, String(w.nbFaces));
   assert.ok(/FACE_BOUND\(/.test(w.texte));
+  assert.equal(w.nbSolides, 1);
+  // solide ferme : chaque arete est parcourue une fois dans chaque sens
+  const sens = new Map();
+  for (const m of w.texte.matchAll(/ORIENTED_EDGE\('',\*,\*,#(\d+),\.(T|F)\.\)/g)) { const s = sens.get(m[1]) || { T: 0, F: 0 }; s[m[2]]++; sens.set(m[1], s); }
+  assert.ok(sens.size > 0);
+  for (const [k, s] of sens) assert.ok(s.T === 1 && s.F === 1, "arete #" + k + " " + JSON.stringify(s));
   // coordonnees en mm : le mur fait 10,5 m de long
   const xs = [...w.texte.matchAll(/CARTESIAN_POINT\('',\(([-\d.E+]+),([-\d.E+]+),([-\d.E+]+)\)\)/g)].map((m) => [+m[1], +m[2], +m[3]]);
   const ext = [0, 1, 2].map((k) => Math.max(...xs.map((p) => p[k])) - Math.min(...xs.map((p) => p[k])));
