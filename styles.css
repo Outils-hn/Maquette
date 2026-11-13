@@ -428,3 +428,4 @@ footer a:hover, footer button:hover { color: var(--ink); text-decoration: underl
 #bOrienter.actif { color: var(--app-ink); background: var(--app-soft); }
 #vue.viseur-face, #scene.viseur-face canvas { cursor: crosshair; }
 @media (max-width: 760px) { #panOrient { top: auto; bottom: 70px; right: 8px; left: 8px; width: auto; } }
+.c-POTEAU { stroke: #a23ba2; background: #a23ba2; } .c-NIVEAUX { stroke: #0d8fa0; background: #0d8fa0; }

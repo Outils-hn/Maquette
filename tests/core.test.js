@@ -537,3 +537,24 @@ test("Orientation : angle libre, volume et surface inchanges", () => {
   const aire = (p) => p.morceaux.reduce((a, m) => { let s2 = 0; for (let i = 0; i < m.T.length; i += 9) { const u = [m.T[i + 3] - m.T[i], m.T[i + 4] - m.T[i + 1], m.T[i + 5] - m.T[i + 2]], w = [m.T[i + 6] - m.T[i], m.T[i + 7] - m.T[i + 1], m.T[i + 8] - m.T[i + 2]]; s2 += 0.5 * Math.hypot(u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]); } return a + s2; }, 0);
   assert.ok(Math.abs(aire(S.produits[0]) - S.produits[0].geo.surface) < 1e-5, "surface conservee"); assert.equal(S.produits[0].geo.volume, v0);
 });
+
+// ---------- Releve gros-oeuvre (1.15) ----------
+test("Releve gros-oeuvre : un plan par niveau, axes deduits, niveaux et DXF sans valeur invalide", () => {
+  const R = IFC.releve(M);
+  assert.equal(R.etages.length, 2); assert.deepEqual(R.etages.map((e) => e.nom), ["MainFloor", "LoftLevel"]);
+  assert.ok(R.axes.u.length >= 2 && R.axes.v.length >= 2, "axes dans les deux sens");
+  assert.deepEqual(R.axes.u.map((a) => a.nom), R.axes.u.map((_, k) => String(k + 1))); assert.equal(R.axes.v[0].nom, "A");
+  assert.ok(R.axes.u.every((a, k) => !k || a.pos > R.axes.u[k - 1].pos), "axes ranges");
+  const calques = new Set(R.segs.map((s) => s.calque)); for (const c of ["MUR", "DALLE", "AXES", "COTES", "NIVEAUX"]) assert.ok(calques.has(c), c);
+  assert.ok(R.etages[0].epais > 0 && R.etages[0].top != null);
+  assert.ok(R.textes.some((t) => /MainFloor/.test(t.txt)) && R.textes.some((t) => /ép\. dalle/.test(t.txt)));
+  assert.ok(R.avertissements.some((a) => /déduits/.test(a)), "mention que les axes sont deduits");
+  const d = IFC.dxf(R.segs, "t - A CONTROLER", R.textes, { prefixe: "GO", calques: IFC.CALQUES_RELEVE, cercles: R.cercles });
+  assert.match(d, /GO-MUR/); assert.match(d, /GO-AXES/); assert.match(d, /\nCIRCLE\r/); assert.match(d, /CENTER/); assert.ok(!/NaN|undefined/.test(d));
+});
+test("Releve gros-oeuvre : sans axes ni cotes ni niveaux, il ne reste que les plans ; maquette vide signalee", () => {
+  const R = IFC.releve(M, { axes: false, cotes: false, niveaux: false }), c = new Set(R.segs.map((s) => s.calque));
+  assert.ok(!c.has("AXES") && !c.has("COTES") && !c.has("NIVEAUX") && c.has("MUR")); assert.equal(R.cercles.length, 0);
+  const vide = IFC.releve({ produits: [], etages: [], bbTout: { min: [0, 0, 0], max: [1, 1, 1] } });
+  assert.ok(vide.vide && vide.avertissements.length === 1 && vide.segs.length === 0);
+});
