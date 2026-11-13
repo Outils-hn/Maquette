@@ -2,6 +2,11 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.11 — 13 novembre 2026
+
+- Nouveauté : ouverture des fichiers STEP (.stp, .step), pièces fournisseurs et assemblages. 3D avec couleurs et arêtes, sous-ensembles dans le contenu, fiche de chaque pièce (dimensions, surface, volume), mesures, coupes et DXF, comme pour une maquette IFC. Le fichier reste sur votre ordinateur : le lecteur tourne dans une boîte sans accès à Internet.
+- Le lecteur STEP (OpenCascade, 7,6 Mo) ne se télécharge qu'à la première ouverture d'un STEP, puis reste en mémoire sur le poste.
+
 ## 1.10 — 13 novembre 2026
 
 - Barre d'outils de la 3D centrée ; signature en bas de page sans soulignement, comme les autres applis.

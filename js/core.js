@@ -1390,7 +1390,117 @@ const IFC = (() => {
     return { texte, nbPieces, nbFaces, nbSolides, nbSurfaces };
   }
 
+  // ---------- Fichiers STEP (resultat d'OpenCascade -> modele de l'appli) ----------
+  // res = { meshes: [{ nom, couleur: [r,g,b]|null, pos: Float64Array (mm), idx: Uint32Array, faces: [[premier, dernier, couleur|null]] }],
+  //         racine: { nom, meshes: [indices], enfants: [...] } }
+  // Chaque forme (solide) devient une piece ; les sous-ensembles du STEP jouent le role des etages dans l'arborescence.
+  function depuisStep(res, opts = {}) {
+    const GRIS = [0.66, 0.69, 0.73], COS_ARETE = Math.cos((12 * Math.PI) / 180), MAX_TRIS_ARETES = 2500000;
+    const avertissements = new Set();
+    // 1. nom et sous-ensemble de chaque forme, d'apres l'arbre du fichier (la racine, anonyme ou generique, n'est pas affichee)
+    const infos = new Array(res.meshes.length).fill(null), groupes = [], idGroupe = new Map();
+    // un sous-ensemble par noeud de l'arbre ; deux instances de meme nom restent distinctes : « Nom », « Nom (2) »
+    const noms = new Map(), AUCUN = {};
+    const grp = (chemin, noeud) => {
+      if (!idGroupe.has(noeud)) { const nom = chemin.join(" › ") || "Pièces", k = (noms.get(nom) || 0) + 1; noms.set(nom, k); groupes.push({ id: groupes.length + 1, nom: k > 1 ? `${nom} (${k})` : nom, elev: 0, z: 0, groupe: true }); idGroupe.set(noeud, groupes.length); }
+      return idGroupe.get(noeud);
+    };
+    const parcourir = (n, chemin, racine, parent) => {
+      const ch = racine || !n.nom ? chemin : [...chemin, n.nom], seule = n.meshes.length === 1 && !n.enfants.length && n.nom && !racine;
+      n.meshes.forEach((mi, k) => {
+        if (!res.meshes[mi] || infos[mi]) return;
+        const m = res.meshes[mi], gen = !m.nom || /^(solid|shell|face|compound)$/i.test(m.nom);
+        const nom = seule ? n.nom : n.meshes.length === 1 ? (n.nom || (gen ? "Pièce" : m.nom)) : `${n.nom || (gen ? "Pièce" : m.nom)} · ${k + 1}`;
+        infos[mi] = { nom, groupe: seule ? grp(chemin, parent) : grp(ch, n) };
+      });
+      for (const e of n.enfants) parcourir(e, ch, false, n);
+    };
+    const racine = res.racine || { nom: "", meshes: [], enfants: [] };
+    parcourir(racine, [], true, racine);
+    res.meshes.forEach((m, mi) => { if (!infos[mi]) infos[mi] = { nom: m.nom && !/^(solid|shell|face|compound)$/i.test(m.nom) ? m.nom : `Pièce ${mi + 1}`, groupe: grp([], AUCUN) }; });
+
+    const produits = []; let totalTris = 0; for (const m of res.meshes) totalTris += m.idx.length / 3;
+    const arretes = totalTris <= MAX_TRIS_ARETES;
+    if (!arretes) avertissements.add("Arêtes non tracées : maillage très lourd (les faces restent dessinées).");
+    const nf = (v, d = 1) => v.toLocaleString("fr-CH", { minimumFractionDigits: 0, maximumFractionDigits: d });
+    res.meshes.forEach((m, mi) => {
+      const V = m.pos, I = m.idx, nT = Math.floor(I.length / 3); if (!nT) return;
+      const s = 0.001, X = (i) => V[3 * i] * s, Y = (i) => V[3 * i + 1] * s, Z = (i) => V[3 * i + 2] * s;
+      // face B-rep de chaque triangle, couleur de chaque triangle (face > forme > gris)
+      const faceDe = new Int32Array(nT).fill(-1), couleurs = new Map(), colTri = new Int32Array(nT).fill(-1);
+      const cle = (c) => { const k = c.map((x) => Math.round(x * 255)).join(","); if (!couleurs.has(k)) couleurs.set(k, couleurs.size); return couleurs.get(k); };
+      const base = cle(m.couleur || GRIS);
+      m.faces.forEach(([a, b, c], fi) => { const k = c ? cle(c) : base; for (let t = Math.max(0, a); t <= b && t < nT; t++) { faceDe[t] = fi; colTri[t] = k; } });
+      for (let t = 0; t < nT; t++) if (colTri[t] < 0) colTri[t] = base;
+      const rgbDe = []; for (const [k, i] of couleurs) rgbDe[i] = k.split(",").map((x) => +x / 255);
+      // origine propre a la piece (precision), sommets soudes (les faces voisines ont chacune leurs sommets)
+      const o = [Math.round(X(I[0])), Math.round(Y(I[0])), Math.round(Z(I[0]))];
+      const soude = new Map(), wx = [], wy = [], wz = [], tw = new Int32Array(nT * 3);
+      const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+      for (let t = 0; t < nT * 3; t++) {
+        const i = I[t], k = Math.round(V[3 * i] * 1000) + "," + Math.round(V[3 * i + 1] * 1000) + "," + Math.round(V[3 * i + 2] * 1000);
+        let w = soude.get(k); if (w === undefined) { w = wx.length; soude.set(k, w); wx.push(X(i)); wy.push(Y(i)); wz.push(Z(i)); }
+        tw[t] = w;
+      }
+      for (let w = 0; w < wx.length; w++) { const q = [wx[w], wy[w], wz[w]]; for (let j = 0; j < 3; j++) { if (q[j] < min[j]) min[j] = q[j]; if (q[j] > max[j]) max[j] = q[j]; } }
+      // triangles par couleur ; normales, surface, volume
+      const parCouleur = new Map(); let surface = 0, volume = 0; const nrm = new Float64Array(nT * 3);
+      for (let t = 0; t < nT; t++) {
+        const a = tw[3 * t], b = tw[3 * t + 1], c = tw[3 * t + 2];
+        const ux = wx[b] - wx[a], uy = wy[b] - wy[a], uz = wz[b] - wz[a], vx = wx[c] - wx[a], vy = wy[c] - wy[a], vz = wz[c] - wz[a];
+        const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, l = Math.hypot(nx, ny, nz);
+        if (l > 0) { nrm[3 * t] = nx / l; nrm[3 * t + 1] = ny / l; nrm[3 * t + 2] = nz / l; }
+        surface += l / 2; volume += (wx[a] * (wy[b] * wz[c] - wz[b] * wy[c]) - wy[a] * (wx[b] * wz[c] - wz[b] * wx[c]) + wz[a] * (wx[b] * wy[c] - wy[b] * wx[c])) / 6;
+        if (!(l > 0)) continue; // triangle degenere : ignore
+        const L = parCouleur.get(colTri[t]); if (L) L.push(t); else parCouleur.set(colTri[t], [t]);
+      }
+      // aretes : contour des faces B-rep (pas les facettes d'une surface courbe), bords ouverts, plis marques
+      const A = [], ouvertes = [];
+      if (arretes) {
+        const N = wx.length + 1, un = new Map(), deux = new Map(), multi = new Set();
+        for (let t = 0; t < nT; t++) for (let e = 0; e < 3; e++) {
+          const a = tw[3 * t + e], b = tw[3 * t + (e + 1) % 3]; if (a === b) continue;
+          const k = a < b ? a * N + b : b * N + a, t1 = un.get(k);
+          if (t1 === undefined) un.set(k, t); else if (!deux.has(k)) deux.set(k, t); else multi.add(k);
+        }
+        for (const [k, t1] of un) {
+          const t2 = deux.get(k); let trace = false;
+          if (t2 === undefined) { trace = true; ouvertes.push(k); }
+          else {
+            const dot = nrm[3 * t1] * nrm[3 * t2] + nrm[3 * t1 + 1] * nrm[3 * t2 + 1] + nrm[3 * t1 + 2] * nrm[3 * t2 + 2];
+            trace = faceDe[t1] !== faceDe[t2] ? dot < COS_ARETE || multi.has(k) : dot < 0.5;
+          }
+          if (trace) { const b = k % N, a = (k - b) / N; A.push(wx[a] - o[0], wy[a] - o[1], wz[a] - o[2], wx[b] - o[0], wy[b] - o[1], wz[b] - o[2]); }
+        }
+      }
+      // morceaux : un par couleur ; les aretes sont portees par le premier
+      const morceaux = []; let premier = true;
+      for (const [ci, L] of parCouleur) {
+        const T = new Float32Array(L.length * 9); let q = 0;
+        for (const t of L) for (let e = 0; e < 3; e++) { const w = tw[3 * t + e]; T[q++] = wx[w] - o[0]; T[q++] = wy[w] - o[1]; T[q++] = wz[w] - o[2]; }
+        morceaux.push({ T, A: premier ? Float32Array.from(A) : new Float32Array(0), o, couleur: { rgb: rgbDe[ci], alpha: 1 }, src: mi, verre: false }); premier = false;
+      }
+      if (!morceaux.length) return;
+      const ferme = !ouvertes.length && arretes, aireCm2 = surface * 1e4, volCm3 = Math.abs(volume) * 1e6;
+      const props = [{ nom: "Surface", val: `${nf(aireCm2)} cm²` }];
+      if (ferme) props.push({ nom: "Volume", val: `${nf(volCm3)} cm³` });
+      props.push({ nom: "Faces", val: String(m.faces.length || "—") });
+      produits.push({
+        id: mi + 1, ifc: "STEP", type: "Pièce", nom: infos[mi].nom, gid: "", desc: "", objType: "", etage: infos[mi].groupe, materiau: "", mur: null,
+        psets: [{ nom: "Géométrie (calculée sur le maillage)", props }],
+        geo: { surface, volume: ferme ? Math.abs(volume) : null, faces: m.faces.length, ferme },
+        bb: { min, max }, morceaux,
+      });
+    });
+    const utilises = new Set(produits.map((p) => p.etage));
+    return {
+      schema: "STEP", source: "step", produits, etages: groupes.filter((g) => utilises.has(g.id)), avertissements: [...avertissements],
+      projet: opts.nom ? opts.nom.replace(/\.(stp|step)$/i, "") : "Sans nom", logiciel: "OpenCascade", nbEntites: res.meshes.length, aPsets: true,
+      bbTout: bbox(produits.flatMap((p) => [p.bb.min, p.bb.max])),
+    };
+  }
+
   const couleurType = (ifc) => COULEURS[ifc] || [0.62, 0.64, 0.66];
-  return { parse, build, texteIFC, facades, elevation, orientation, FACES, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
+  return { parse, build, depuisStep, texteIFC, facades, elevation, orientation, FACES, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
 })();
 export default IFC;

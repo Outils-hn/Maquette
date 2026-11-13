@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.10";
+import IFC from "./core.js?v=1.11";
 
-const VERSION = "1.10";
+const VERSION = "1.11";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -410,7 +410,7 @@ const RESERVEE_CONCEPTEUR = true;
     if (etat.mesure) return afficherMesure();
     if (etat.sel == null) {
       box.innerHTML = `<p class="vide">Cliquez un élément dans la vue ou dans la liste pour voir ce que la maquette contient à son sujet.</p>
-        <div class="resume">${ligne("Projet", M.projet)}${ligne("Logiciel d'origine", M.logiciel)}${ligne("Format", M.schema)}${ligne("Éléments dessinés", M.produits.length)}${ligne("Étages", M.etages.length)}</div>
+        <div class="resume">${ligne("Projet", M.projet)}${ligne("Logiciel d'origine", M.logiciel)}${ligne("Format", M.schema)}${ligne(M.source === "step" ? "Pièces" : "Éléments dessinés", M.produits.length)}${ligne(M.source === "step" ? "Sous-ensembles" : "Étages", M.etages.length)}</div>
         ${M.aPsets ? "" : `<p class="note">Ce fichier ne contient pas de jeux de propriétés (Psets) : seuls les noms, matériaux et dimensions sont disponibles. Avec une maquette d'architecte bien renseignée, on verrait ici la valeur U, la résistance au feu, les références…</p>`}`;
       return;
     }
@@ -418,7 +418,7 @@ const RESERVEE_CONCEPTEUR = true;
     const et = M.etages.find((e) => e.id === p.etage);
     const mur = p.mur != null ? M.produits.find((x) => x.id === p.mur) : null;
     let h = `<div class="tete"><span class="pastille" style="--c:${rgba((p.morceaux.find((m) => !m.verre && m.couleur) || {}).couleur?.rgb || IFC.couleurType(p.ifc), 1, 1)}"></span><div><h3>${esc(p.nom)}</h3><p>${esc(p.type)} <span class="mono">${esc(p.ifc.replace(/^IFC/, "Ifc").replace(/(Ifc)(.)(.*)/, (_m, a, b, c) => a + b + c.toLowerCase()))}</span></p></div></div>`;
-    h += `<dl class="groupe"><h4>Identité</h4>${ligne("Étage", nomEtage(p.etage))}${ligne("Matériau", p.materiau)}${ligne("Description", p.desc)}${ligne("Type d'objet", p.objType)}${ligne("GlobalId", p.gid, true)}</dl>`;
+    h += `<dl class="groupe"><h4>Identité</h4>${ligne(M.source === "step" ? "Sous-ensemble" : "Étage", nomEtage(p.etage))}${ligne("Matériau", p.materiau)}${ligne("Description", p.desc)}${ligne("Type d'objet", p.objType)}${ligne("GlobalId", p.gid, true)}</dl>`;
     if (p.hauteur != null) h += `<dl class="groupe"><h4>${p.ifc === "IFCDOOR" ? "Porte" : "Fenêtre"}</h4>${ligne("Largeur", `${p.largeur.toLocaleString("fr-CH")} mm`, true)}${ligne("Hauteur", `${p.hauteur.toLocaleString("fr-CH")} mm`, true)}${et ? ligne("Allège (depuis l'étage)", `${mm(bb.min[2] - et.z)} mm`, true) : ""}${ligne("Dans le mur", mur ? mur.nom : "—")}</dl>`;
     if (p.surf) h += `<dl class="groupe"><h4>Surfaces du mur</h4>${ligne("Longueur", `${mm(p.surf.L)} mm`, true)}${ligne("Hauteur", `${mm(p.surf.h)} mm`, true)}${ligne("Épaisseur", `${mm(p.surf.T)} mm`, true)}${ligne("Surface brute", `${m2(p.surf.brute)} m²`, true)}${ligne("Ouvertures et découpes", `${p.surf.trous} (${m2(p.surf.brute - p.surf.nette)} m²)`, true)}${ligne("Surface nette", `${m2(p.surf.nette)} m²`, true)}</dl>`;
     h += `<dl class="groupe"><h4>Encombrement mesuré</h4>${ligne("X", `${mm(d[0])} mm`, true)}${ligne("Y", `${mm(d[1])} mm`, true)}${ligne("Z", `${mm(d[2])} mm`, true)}${ligne("Niveau bas", `${mm(bb.min[2])} mm`, true)}</dl>`;
@@ -447,13 +447,16 @@ const RESERVEE_CONCEPTEUR = true;
     const ordre = [...M.etages.map((e) => e.id).filter((id) => groupes.has(id)), ...(groupes.has("aucun") ? ["aucun"] : [])];
     $("#arbre").innerHTML = ordre.map((k) => {
       const e = M.etages.find((x) => x.id === k); const g = groupes.get(k); const n = [...g.values()].reduce((s, l) => s + l.length, 0);
-      return `<details class="etage" open><summary><span class="nom">${esc(e ? e.nom : "Sans étage")}</span><span class="cote mono">${e ? `${e.elev >= 0 ? "+" : ""}${mm(e.elev)}` : ""}</span><span class="nb">${n}</span>
-        ${e ? `<button type="button" class="mini" data-plan="${k}" title="Vue en plan coupée à 1 m au-dessus de cet étage">Plan</button>` : ""}
+      return `<details class="etage" open><summary><span class="nom">${esc(e ? e.nom : M.source === "step" ? "Sans sous-ensemble" : "Sans étage")}</span><span class="cote mono">${e && !e.groupe ? `${e.elev >= 0 ? "+" : ""}${mm(e.elev)}` : ""}</span><span class="nb">${n}</span>
+        ${e && !e.groupe ? `<button type="button" class="mini" data-plan="${k}" title="Vue en plan coupée à 1 m au-dessus de cet étage">Plan</button>` : ""}
         <button type="button" class="oeil" data-etage="${k}" aria-pressed="${!etat.cache.has(k)}" aria-label="Afficher ou masquer ${esc(e ? e.nom : "Sans étage")}"></button></summary>
-        ${[...g.entries()].map(([t, l]) => `<details class="type"><summary><span class="nom">${esc(t)}</span><span class="nb">${l.length}</span></summary><ul>${l.map((i) => `<li><button type="button" data-pi="${i}">${esc(M.produits[i].nom)}</button></li>`).join("")}</ul></details>`).join("")}
+        ${[...g.entries()].map(([t, l]) => M.source === "step"
+          ? `<div class="type"><ul>${l.map((i) => `<li><button type="button" data-pi="${i}">${esc(M.produits[i].nom)}</button></li>`).join("")}</ul></div>`
+          : `<details class="type"><summary><span class="nom">${esc(t)}</span><span class="nb">${l.length}</span></summary><ul>${l.map((i) => `<li><button type="button" data-pi="${i}">${esc(M.produits[i].nom)}</button></li>`).join("")}</ul></details>`).join("")}
       </details>`;
     }).join("");
     const types = [...new Set(M.produits.map((p) => p.type))].sort((a, b) => a.localeCompare(b, "fr"));
+    $("#filtres").hidden = M.source === "step"; // un seul type (« Pièce ») : les pastilles ne servent a rien
     $("#filtres").innerHTML = types.map((t) => `<button type="button" class="puce" data-type="${esc(t)}" aria-pressed="${!etat.caches.has(t)}">${esc(t)} <span>${M.produits.filter((p) => p.type === t).length}</span></button>`).join("");
   }
   document.addEventListener("click", (e) => {
@@ -695,7 +698,7 @@ const RESERVEE_CONCEPTEUR = true;
     },
     tout: {
       titre: "Tous les éléments", filtre: () => true,
-      cols: ["Nom", "Type", "Étage", "Matériau", "X (mm)", "Y (mm)", "Z (mm)"],
+      get cols() { return ["Nom", "Type", M && M.source === "step" ? "Sous-ensemble" : "Étage", "Matériau", "X (mm)", "Y (mm)", "Z (mm)"]; },
       ligne: (p) => [p.nom, p.type, nomEtage(p.etage), p.materiau, Math.round((p.bb.max[0] - p.bb.min[0]) * 1000), Math.round((p.bb.max[1] - p.bb.min[1]) * 1000), Math.round((p.bb.max[2] - p.bb.min[2]) * 1000)],
       total: (L) => ["Total", `${L.length} éléments`, "", "", "", "", ""],
     },
@@ -741,14 +744,19 @@ const RESERVEE_CONCEPTEUR = true;
     Object.assign(etat, { cache: new Set(), caches: new Set(), isole: null, sel: null, coupe: null, pts: [] });
     if (etat.mesure) basculerMesure(false);
     $("#axeCoupe").value = ""; $("#hauteur").disabled = true; etat.face = null; FAC = null; ANGLE = IFC.orientation(M); majDxf(); $("#valCoupe").textContent = "—";
-    $("#accueil").hidden = true; $("#bCopier").disabled = false; $("#bStep").disabled = false;
+    // fichier STEP : pas de murs ni de fenetres ; les sous-ensembles remplacent les etages ; l'export STEP n'a pas de sens
+    const estStep = m.source === "step";
+    document.querySelectorAll('[data-onglet="fen"], [data-onglet="murs"], [data-onglet="fac"]').forEach((b) => { b.hidden = estStep; });
+    if (estStep) ongletActif = "tout"; else if (ongletActif === "tout") ongletActif = "fen";
+    $("#bStep").title = estStep ? "Cette maquette est déjà un fichier STEP" : "Exporter des éléments en STEP pour AutoCAD ou un logiciel 3D";
+    $("#accueil").hidden = true; $("#bCopier").disabled = false; $("#bStep").disabled = estStep;
     construire(); arbre(); onglet(ongletActif); afficherProps(); majOutils();
     $("#fichier").textContent = nom; document.title = `${nom} — Maquette`;
-    $("#infos").textContent = `${m.schema}${m.logiciel ? ` · ${m.logiciel}` : ""} · ${m.produits.length} éléments · lu en ${ms < 1000 ? `${Math.max(1, Math.round(ms))} ms` : `${(ms / 1000).toFixed(1).replace(".", ",")} s`}`;
+    $("#infos").textContent = `${m.schema}${m.logiciel ? ` · ${m.logiciel}` : ""} · ${m.produits.length} ${estStep ? "pièces" : "éléments"} · lu en ${ms < 1000 ? `${Math.max(1, Math.round(ms))} ms` : `${(ms / 1000).toFixed(1).replace(".", ",")} s`}`;
     // remarques : badge sur le rail, detail dans le panneau « Remarques » (textes complets, sans coupure)
     const groupes = new Map();
-    for (const a of m.avertissements) { const t = /^Ouvertures/.test(a) ? "Ouvertures non découpées" : /^Découpes/.test(a) ? "Découpes de forme ignorées" : /^Élément long/.test(a) ? "Éléments longs à calculer" : /^Élément ignoré/.test(a) ? "Éléments ignorés (calcul bloqué)" : "Formes non dessinées"; if (!groupes.has(t)) groupes.set(t, []); groupes.get(t).push(a); }
-    const EXPL = { "Ouvertures non découpées": "Certaines fenêtres ou trémies n'ont pas pu être percées dans leur mur ou leur dalle (forme trop complexe ou trop longue à calculer) : l'élément est affiché plein.", "Découpes de forme ignorées": "Certains éléments sont coupés dans la maquette par une forme particulière : ils sont affichés avant la découpe.", "Éléments longs à calculer": "Ces éléments ont pris plusieurs secondes : c'est eux qui allongent la lecture.", "Éléments ignorés (calcul bloqué)": "Le calcul de ces éléments bloquait la lecture : ils ne sont pas affichés.", "Formes non dessinées": "Quelques types de formes ne sont pas encore pris en charge." };
+    for (const a of m.avertissements) { const t = /^Ouvertures/.test(a) ? "Ouvertures non découpées" : /^Découpes/.test(a) ? "Découpes de forme ignorées" : /^Élément long/.test(a) ? "Éléments longs à calculer" : /^Élément ignoré/.test(a) ? "Éléments ignorés (calcul bloqué)" : /^Arêtes/.test(a) ? "Arêtes non tracées" : "Formes non dessinées"; if (!groupes.has(t)) groupes.set(t, []); groupes.get(t).push(a); }
+    const EXPL = { "Ouvertures non découpées": "Certaines fenêtres ou trémies n'ont pas pu être percées dans leur mur ou leur dalle (forme trop complexe ou trop longue à calculer) : l'élément est affiché plein.", "Découpes de forme ignorées": "Certains éléments sont coupés dans la maquette par une forme particulière : ils sont affichés avant la découpe.", "Éléments longs à calculer": "Ces éléments ont pris plusieurs secondes : c'est eux qui allongent la lecture.", "Éléments ignorés (calcul bloqué)": "Le calcul de ces éléments bloquait la lecture : ils ne sont pas affichés.", "Arêtes non tracées": "Ce fichier est très lourd : les faces sont dessinées, mais les traits d'arête ne le sont pas.", "Formes non dessinées": "Quelques types de formes ne sont pas encore pris en charge." };
     $("#nbRem").hidden = !groupes.size; $("#nbRem").textContent = groupes.size;
     $("#remarques").innerHTML = groupes.size ? [...groupes].map(([t, L]) => `<div class="rq"><b>${esc(t)}</b><p>${esc(EXPL[t])}</p>${L.some((x) => /#|:/.test(x)) ? `<ul>${L.filter((x) => /:/.test(x)).map((x) => `<li>${esc(x.replace(/^[^:]+:\s*/, ""))}</li>`).join("")}</ul>` : ""}</div>`).join("") : `<p class="vide">Aucune remarque : tout a été lu et dessiné.</p>`;
     indexRech = null; if (ui.gauche === "recherche") chercher();
@@ -766,7 +774,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.10", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.11", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     let dernier = null, attente = false, tDernier = Date.now();
     // garde-fou : un element dont le calcul bloque plus de 30 s est ignore, et la lecture repart sans lui
     veille = setInterval(() => {
@@ -788,9 +796,27 @@ const RESERVEE_CONCEPTEUR = true;
     w.onerror = (e) => { e.preventDefault(); w.terminate(); clearInterval(veille); direct(); };
     w.postMessage({ src: texte, ignorer });
   }
+  // Fichier STEP : lu par OpenCascade dans une boite sans reseau (step.js), puis converti en modele dans le worker habituel
+  async function lireStepFichier(f) {
+    const nom = f.name, t0 = performance.now();
+    $("#chargement").hidden = false; $("#chargementTxt").textContent = `Lecture de ${nom}…`;
+    const fin = () => { $("#chargement").hidden = true; };
+    let res;
+    try {
+      const { lireStep } = await import("./step.js?v=1.11");
+      res = await lireStep(f, (t) => { $("#chargementTxt").textContent = `${nom} · ${t}…`; });
+    } catch (err) { fin(); toast(`Impossible de lire ce fichier STEP : ${err.message}`); return; }
+    $("#chargementTxt").textContent = `${nom} · Conversion de la géométrie…`;
+    const direct = () => setTimeout(() => { try { afficherModele(IFC.depuisStep(res, { nom }), nom, performance.now() - t0); } catch (err) { toast(`Impossible de lire ce fichier STEP : ${err.message}`); } fin(); }, 30);
+    let w; try { w = new Worker(new URL("./worker.js?v=1.11", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    w.onmessage = (e) => { if (e.data.prog != null) return; w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier STEP : ${e.data.err}`); };
+    w.onerror = (e) => { e.preventDefault(); w.terminate(); fin(); toast("Impossible de convertir ce fichier STEP (le calcul en arrière-plan a échoué)."); }; // les tableaux ont ete transferes : pas de reprise directe
+    w.postMessage({ step: res, nom }, res.meshes.flatMap((m) => [m.pos.buffer, m.idx.buffer]));
+  }
   function lireFichier(f) {
     if (!f) return;
-    if (!/\.(ifc|ifczip|zip)$/i.test(f.name)) { toast("Choisissez un fichier .ifc ou .ifczip (les fichiers Revit .rvt ne s'ouvrent pas : demandez l'export IFC)."); return; }
+    if (/\.(stp|step)$/i.test(f.name)) { lireStepFichier(f); return; }
+    if (!/\.(ifc|ifczip|zip)$/i.test(f.name)) { toast("Choisissez un fichier .ifc, .ifczip ou .stp (les fichiers Revit .rvt ne s'ouvrent pas : demandez l'export IFC)."); return; }
     lire(f, f.name);
   }
   $("#ouvrir2").addEventListener("change", (e) => { lireFichier(e.target.files[0]); e.target.value = ""; });
@@ -815,7 +841,7 @@ const RESERVEE_CONCEPTEUR = true;
   new MutationObserver(envoyer).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   dimensionner();
-  window.__viewer = { etat, cam, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; } };
+  window.__viewer = { etat, cam, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.11")).testerBoite(cible) };
 
 
 // ======================= Bandeau commun de la famille =======================
