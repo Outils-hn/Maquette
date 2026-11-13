@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.15";
+import IFC from "./core.js?v=1.16";
 
-const VERSION = "1.15";
+const VERSION = "1.16";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -430,7 +430,7 @@ const RESERVEE_CONCEPTEUR = true;
     if (p.cmp) h += `<dl class="groupe cmp-fiche"><h4>Comparaison</h4><div class="stat-cmp" style="--c:${CMP[p.cmp].css}"><i></i>${CMP[p.cmp].nom}</div>${p.cmpInfo.length ? `<ul>${p.cmpInfo.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : `<p class="note">Aucune différence (tolérance 1 mm).</p>`}</dl>`;
     h += `<dl class="groupe"><h4>Identité</h4>${ligne(M.source === "step" ? "Sous-ensemble" : "Étage", nomEtage(p.etage))}${ligne("Matériau", p.materiau)}${ligne("Description", p.desc)}${ligne("Type d'objet", p.objType)}${ligne("GlobalId", p.gid, true)}</dl>`;
     if (p.hauteur != null) h += `<dl class="groupe"><h4>${p.ifc === "IFCDOOR" ? "Porte" : "Fenêtre"} ${CTL}</h4>${ligne("Largeur", `${p.largeur.toLocaleString("fr-CH")} mm`, true)}${ligne("Hauteur", `${p.hauteur.toLocaleString("fr-CH")} mm`, true)}${et ? ligne("Allège (depuis l'étage)", `${mm(bb.min[2] - et.z)} mm`, true) : ""}${ligne("Dans le mur", mur ? mur.nom : "—")}</dl>`;
-    if (p.surf) h += `<dl class="groupe"><h4>Surfaces du mur ${CTL}</h4>${ligne("Longueur", `${mm(p.surf.L)} mm`, true)}${ligne("Hauteur", `${mm(p.surf.h)} mm`, true)}${ligne("Épaisseur", `${mm(p.surf.T)} mm`, true)}${ligne("Surface brute", `${m2(p.surf.brute)} m²`, true)}${ligne("Ouvertures et découpes", `${p.surf.trous} (${m2(p.surf.brute - p.surf.nette)} m²)`, true)}${ligne("Surface nette", `${m2(p.surf.nette)} m²`, true)}</dl>`;
+    if (p.surf) h += `<dl class="groupe"><h4>Surfaces du mur ${CTL}</h4>${ligne("Longueur", `${mm(p.surf.L)} mm`, true)}${ligne("Hauteur", `${mm(p.surf.h)} mm`, true)}${ligne("Épaisseur", `${mm(p.surf.T)} mm`, true)}${ligne("Surface brute", `${m2(p.surf.brute)} m²`, true)}${ligne("Ouvertures et découpes", `${p.surf.trous} (${m2(p.surf.brute - p.surf.nette)} m²)`, true)}${ligne("Surface nette", `${m2(p.surf.nette)} m²`, true)}</dl>${calculMur(p)}`;
     h += `<dl class="groupe"><h4>Encombrement mesuré ${CTL}</h4>${ligne("X", `${mm(d[0])} mm`, true)}${ligne("Y", `${mm(d[1])} mm`, true)}${ligne("Z", `${mm(d[2])} mm`, true)}${ligne("Niveau bas", `${mm(bb.min[2])} mm`, true)}</dl>`;
     for (const ps of p.psets) h += `<dl class="groupe"><h4>${esc(ps.nom)}</h4>${ps.props.map((x) => ligne(x.nom, x.val)).join("")}</dl>`;
     if (!p.psets.length) h += `<p class="note">Aucun jeu de propriétés (Pset) pour cet élément dans ce fichier.</p>`;
@@ -477,6 +477,7 @@ const RESERVEE_CONCEPTEUR = true;
     else if (b.dataset.plan != null) { e.preventDefault(); const et = M.etages.find((x) => x.id === +b.dataset.plan); poserCoupe("z", et.z + 1); vue("plan"); }
     else if (b.dataset.vue) vue(b.dataset.vue);
     else if (b.dataset.voirface) vue(b.dataset.voirface);
+    else if (b.dataset.calc) { const r = $("#calc-" + b.dataset.calc), ouvert = r.hidden; r.hidden = !ouvert; b.setAttribute("aria-expanded", String(ouvert)); b.textContent = ouvert ? "Masquer le calcul" : "Voir le calcul"; if (ouvert) r.scrollIntoView({ block: "nearest" }); }
     else if (b.dataset.elev) ouvrirDxf(b.dataset.elev);
     else if (b.dataset.onglet) onglet(b.dataset.onglet);
   });
@@ -752,6 +753,27 @@ const RESERVEE_CONCEPTEUR = true;
 
   // ---------- Listes (tableaux) et copie pour Excel ----------
   let ongletActif = "fen";
+  // calcul montre pas a pas (fiche d'un mur et lignes de la liste Facades)
+  const m2f = (v) => `${(Math.round(v * 100) / 100).toLocaleString("fr-CH", { minimumFractionDigits: 2 })} m²`;
+  function calculMur(p) {
+    const o = M.produits.filter((x) => x.mur === p.id && (x.ifc === "IFCWINDOW" || x.ifc === "IFCDOOR"));
+    const lg = o.map((x) => `<li><span>${esc(x.nom)}</span><span class="mono">${x.largeur} × ${x.hauteur} mm = ${m2f(x.largeur * x.hauteur / 1e6)}</span></li>`).join("");
+    return `<dl class="groupe calc"><h4>Le calcul ${CTL}</h4>
+      <p class="formule"><b>${m2f(p.surf.brute)}</b> brute <i>(${(p.surf.L).toFixed(3).replace(".", ",")} m × ${(p.surf.h).toFixed(3).replace(".", ",")} m)</i><br>− <b>${m2f(p.surf.brute - p.surf.nette)}</b> de ${p.surf.trous} découpe${p.surf.trous > 1 ? "s" : ""} trouvée${p.surf.trous > 1 ? "s" : ""} dans la forme<br>= <b>${m2f(p.surf.nette)}</b> nette</p>
+      ${o.length ? `<p class="note">Ouvertures rattachées à ce mur dans le fichier (${o.length}) :</p><ul class="calc-liste">${lg}</ul>` : `<p class="note">Aucune fenêtre ni porte rattachée à ce mur dans le fichier.</p>`}</dl>`;
+  }
+  function calculFacade(cle) {
+    const f = facs()[cle]; if (!f || !f.metre) return "";
+    const m = f.metre, P = M.produits;
+    const murs = f.murs.map((i) => { const q = P[i]; const b = q.surf ? q.surf.brute : (q.bb.max[0] - q.bb.min[0]) * (q.bb.max[2] - q.bb.min[2]); return `<li><span>${esc(q.nom)}</span><span class="mono">${m2f(b)}</span></li>`; }).join("");
+    const ouv = f.ouvertures.map((o) => `<li><span>${o.porte ? "Porte" : "Fenêtre"} · ${esc(o.nom)}</span><span class="mono">${o.largeur} × ${o.hauteur} mm = ${m2f(o.largeur * o.hauteur / 1e6)}</span></li>`).join("");
+    const ml = (v) => `${(Math.round(v * 100) / 100).toLocaleString("fr-CH", { minimumFractionDigits: 2 })} ml`;
+    return `<div class="calc-fac"><div class="calc-col"><h5>Surface brute</h5><ul class="calc-liste">${murs}</ul><p class="tot"><span>${f.murs.length} mur${f.murs.length > 1 ? "s" : ""}</span><b class="mono">${m2f(m.brute)}</b></p></div>
+      <div class="calc-col"><h5>− Ouvertures</h5>${ouv ? `<ul class="calc-liste">${ouv}</ul>` : `<p class="note">Aucune ouverture sur cette façade.</p>`}<p class="tot"><span>${m.fenetres} fenêtre${m.fenetres > 1 ? "s" : ""}, ${m.portes} porte${m.portes > 1 ? "s" : ""}</span><b class="mono">${m2f(m.ouvertures)}</b></p></div>
+      <div class="calc-col res"><h5>= Surface nette</h5><p class="grand mono">${m2f(m.nette)}</p><p class="formule">${m2f(m.brute)} − ${m2f(m.ouvertures)}</p>
+      <p class="note">Tableaux : 2 × hauteur de chaque ouverture = ${ml(m.tableaux)}<br>Linteaux : largeurs = ${ml(m.linteaux)}<br>Appuis : largeurs des fenêtres = ${ml(m.appuis)}</p></div></div>
+      <p class="note">${CTL} Chiffres calculés par Maquette ; si un mur n'est pas percé dans le fichier, la brute et la nette ne tiennent pas compte de ses fenêtres.</p>`;
+  }
   const LISTES = {
     fen: {
       titre: "Fenêtres et portes", filtre: (p) => p.ifc === "IFCWINDOW" || p.ifc === "IFCDOOR",
@@ -797,9 +819,9 @@ const RESERVEE_CONCEPTEUR = true;
     if (L.lignes) {
       // facades : une ligne par face, avec un bouton pour la voir et un pour son elevation DXF
       const F = L.lignes();
-      $("#tables").innerHTML = F.length ? `<table><thead><tr>${L.cols.map((c) => `<th${num(c) ? ' class="n"' : ""}>${esc(c)}</th>`).join("")}<th>Élévation</th></tr></thead>
-        <tbody>${F.map(({ face, r }) => `<tr>${r.map((v, j) => j === 0 ? `<td><button type="button" data-voirface="${face}" title="Voir cette face">${esc(v)}</button></td>` : `<td class="n mono">${esc(fmt(v))}</td>`).join("")}<td><button type="button" class="mini" data-elev="${face}">DXF coté</button></td></tr>`).join("")}</tbody>
-        <tfoot><tr>${L.total(F.map((x) => x.r)).map((v, j) => `<td${j ? ' class="n mono"' : ""}>${esc(fmt(v))}</td>`).join("")}<td></td></tr></tfoot></table>
+      $("#tables").innerHTML = F.length ? `<table><thead><tr>${L.cols.map((c) => `<th${num(c) ? ' class="n"' : ""}>${esc(c)}</th>`).join("")}<th>Calcul</th><th>Élévation</th></tr></thead>
+        <tbody>${F.map(({ face, r }) => `<tr>${r.map((v, j) => j === 0 ? `<td><button type="button" data-voirface="${face}" title="Voir cette face">${esc(v)}</button></td>` : `<td class="n mono">${esc(fmt(v))}</td>`).join("")}<td><button type="button" class="mini" data-calc="${face}" aria-expanded="false">Voir le calcul</button></td><td><button type="button" class="mini" data-elev="${face}">DXF coté</button></td></tr><tr class="ligne-calc" id="calc-${face}" hidden><td colspan="14">${calculFacade(face)}</td></tr>`).join("")}</tbody>
+        <tfoot><tr>${L.total(F.map((x) => x.r)).map((v, j) => `<td${j ? ' class="n mono"' : ""}>${esc(fmt(v))}</td>`).join("")}<td></td><td></td></tr></tfoot></table>
         <p class="hint note-fac">Murs extérieurs repérés automatiquement (rien devant eux vu de chaque face). Tableaux : 2 × hauteur par ouverture ; linteaux : largeurs ; appuis : largeurs des fenêtres.</p>`
         : `<p class="vide">Aucun mur extérieur repéré dans cette maquette.</p>`;
       document.querySelectorAll("[data-onglet]").forEach((b) => { b.querySelector("span").textContent = LISTES[b.dataset.onglet].lignes ? LISTES[b.dataset.onglet].lignes().length : M.produits.filter(LISTES[b.dataset.onglet].filtre).length; });
@@ -853,8 +875,10 @@ const RESERVEE_CONCEPTEUR = true;
     const groupes = new Map();
     for (const a of m.avertissements) { const t = /^Ouvertures/.test(a) ? "Ouvertures non découpées" : /^Découpes/.test(a) ? "Découpes de forme ignorées" : /^Élément long/.test(a) ? "Éléments longs à calculer" : /^Élément ignoré/.test(a) ? "Éléments ignorés (calcul bloqué)" : /^Arêtes/.test(a) ? "Arêtes non tracées" : "Formes non dessinées"; if (!groupes.has(t)) groupes.set(t, []); groupes.get(t).push(a); }
     const EXPL = { "Ouvertures non découpées": "Certaines fenêtres ou trémies n'ont pas pu être percées dans leur mur ou leur dalle (forme trop complexe ou trop longue à calculer) : l'élément est affiché plein.", "Découpes de forme ignorées": "Certains éléments sont coupés dans la maquette par une forme particulière : ils sont affichés avant la découpe.", "Éléments longs à calculer": "Ces éléments ont pris plusieurs secondes : c'est eux qui allongent la lecture.", "Éléments ignorés (calcul bloqué)": "Le calcul de ces éléments bloquait la lecture : ils ne sont pas affichés.", "Arêtes non tracées": "Ce fichier est très lourd : les faces sont dessinées, mais les traits d'arête ne le sont pas.", "Formes non dessinées": "Quelques types de formes ne sont pas encore pris en charge." };
-    $("#nbRem").hidden = !groupes.size; $("#nbRem").textContent = groupes.size;
-    $("#remarques").innerHTML = groupes.size ? [...groupes].map(([t, L]) => `<div class="rq"><b>${esc(t)}</b><p>${esc(EXPL[t])}</p>${L.some((x) => /#|:/.test(x)) ? `<ul>${L.filter((x) => /:/.test(x)).map((x) => `<li>${esc(x.replace(/^[^:]+:\s*/, ""))}</li>`).join("")}</ul>` : ""}</div>`).join("") : `<p class="vide">Aucune remarque : tout a été lu et dessiné.</p>`;
+    const CQ = IFC.controle(M); const nbRq = groupes.size + CQ.length; $("#nbRem").hidden = !nbRq; $("#nbRem").textContent = nbRq;
+    $("#remarques").innerHTML = groupes.size ? [...groupes].map(([t, L]) => `<div class="rq"><b>${esc(t)}</b><p>${esc(EXPL[t])}</p>${L.some((x) => /#|:/.test(x)) ? `<ul>${L.filter((x) => /:/.test(x)).map((x) => `<li>${esc(x.replace(/^[^:]+:\s*/, ""))}</li>`).join("")}</ul>` : ""}</div>`).join("") : "";
+    $("#remarques").innerHTML += CQ.map((g) => `<div class="rq cq"><b>Contrôle · ${esc(g.titre)} <span class="n-cq">${g.items.length}</span></b><p>${esc(g.expl)}</p><ul>${g.items.slice(0, 40).map((it) => `<li><button type="button" data-pi="${it.i}">${esc(it.texte)}</button></li>`).join("")}${g.items.length > 40 ? `<li>… et ${g.items.length - 40} autres</li>` : ""}</ul></div>`).join("");
+    if (!nbRq) $("#remarques").innerHTML = `<p class="vide">Aucune remarque : tout a été lu et dessiné, et le contrôle du modèle n'a rien relevé.</p>`;
     indexRech = null; if (ui.gauche === "recherche") chercher();
     dimensionner(); vue("3d");
   }
@@ -870,7 +894,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.15", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.16", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     let dernier = null, attente = false, tDernier = Date.now();
     // garde-fou : un element dont le calcul bloque plus de 30 s est ignore, et la lecture repart sans lui
     veille = setInterval(() => {
@@ -899,12 +923,12 @@ const RESERVEE_CONCEPTEUR = true;
     const fin = () => { $("#chargement").hidden = true; };
     let res;
     try {
-      const { lireStep } = await import("./step.js?v=1.15");
+      const { lireStep } = await import("./step.js?v=1.16");
       res = await lireStep(f, (t) => { $("#chargementTxt").textContent = `${nom} · ${t}…`; });
     } catch (err) { fin(); toast(`Impossible de lire ce fichier STEP : ${err.message}`); return; }
     $("#chargementTxt").textContent = `${nom} · Conversion de la géométrie…`;
     const direct = () => setTimeout(() => { try { afficherModele(IFC.depuisStep(res, { nom }), nom, performance.now() - t0); } catch (err) { toast(`Impossible de lire ce fichier STEP : ${err.message}`); } fin(); }, 30);
-    let w; try { w = new Worker(new URL("./worker.js?v=1.15", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    let w; try { w = new Worker(new URL("./worker.js?v=1.16", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     w.onmessage = (e) => { if (e.data.prog != null) return; w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier STEP : ${e.data.err}`); };
     w.onerror = (e) => { e.preventDefault(); w.terminate(); fin(); toast("Impossible de convertir ce fichier STEP (le calcul en arrière-plan a échoué)."); }; // les tableaux ont ete transferes : pas de reprise directe
     w.postMessage({ step: res, nom }, res.meshes.flatMap((m) => [m.pos.buffer, m.idx.buffer]));
@@ -987,7 +1011,7 @@ const RESERVEE_CONCEPTEUR = true;
   new MutationObserver(envoyer).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   dimensionner();
-  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.15")).testerBoite(cible) };
+  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.16")).testerBoite(cible) };
 
 
 // ======================= Bandeau commun de la famille =======================

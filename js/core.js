@@ -1901,6 +1901,33 @@ const IFC = (() => {
     return { segs: fusionner(segs.filter((s) => s.calque !== "COTES" && s.calque !== "AXES")).concat(segs.filter((s) => s.calque === "COTES" || s.calque === "AXES")), textes, cercles, axes: { u: axU, v: axV }, etages: infosEtages, avertissements: avert, angle: th };
   }
 
-  return { parse, build, depuisStep, projection, releve, CALQUES_RELEVE, matriceAxe, matricePoser, pivoter, annulerPivot, estIdentite, comparer, fusionComparaison, VUES2D, CALQUES_VUE, texteIFC, facades, elevation, orientation, FACES, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
+
+  // ---------- Controle qualite du modele : cas douteux a verifier (jamais corriges en silence) ----------
+  function controle(model) {
+    const P = model.produits, groupes = [];
+    const ajoute = (cle, titre, expl, items) => { if (items.length) groupes.push({ cle, titre, expl, items }); };
+    const ouv = new Map();
+    P.forEach((p) => { if ((p.ifc === "IFCWINDOW" || p.ifc === "IFCDOOR") && p.mur != null) ouv.set(p.mur, (ouv.get(p.mur) || 0) + 1); });
+    // 1) murs qui portent des fenetres ou portes mais dont la geometrie n'a pas autant de decoupes
+    const nonPerces = [];
+    P.forEach((p, i) => { if (p.surf && ouv.get(p.id) > p.surf.trous) nonPerces.push({ i, texte: `${p.nom} : ${ouv.get(p.id)} ouverture${ouv.get(p.id) > 1 ? "s" : ""} rattachée${ouv.get(p.id) > 1 ? "s" : ""}, ${p.surf.trous} découpe${p.surf.trous > 1 ? "s" : ""} trouvée${p.surf.trous > 1 ? "s" : ""}` }); });
+    ajoute("percement", "Murs peut-être non percés", "Le fichier rattache plus de fenêtres ou de portes à ces murs que Maquette n'a trouvé de découpes. Leur surface nette est probablement trop grande.", nonPerces);
+    // 2) volume nul : une dimension de moins de 1 mm
+    const plats = [];
+    P.forEach((p, i) => { const d = [0, 1, 2].map((k) => p.bb.max[k] - p.bb.min[k]); if (Math.min(...d) < 0.001) plats.push({ i, texte: `${p.nom} : une dimension de ${(Math.min(...d) * 1000).toFixed(1).replace(".", ",")} mm` }); });
+    ajoute("plat", "Éléments sans épaisseur", "Un élément dont une dimension est quasi nulle n'a pas de volume : métré et poids seront faux.", plats);
+    // 3) sans matiere (fichiers IFC seulement : un STEP n'en porte pas)
+    if (model.source !== "step") {
+      const sans = []; P.forEach((p, i) => { if (!p.materiau) sans.push({ i, texte: `${p.nom} (${p.type})` }); });
+      ajoute("matiere", "Éléments sans matériau", "Aucun matériau n'est associé à ces éléments dans le fichier : impossible de les trier ou de les chiffrer par matière.", sans);
+    }
+    // 4) doublons : meme type et meme boite a 1 mm pres
+    const vus = new Map(), doubles = [];
+    P.forEach((p, i) => { const k = p.ifc + "|" + [...p.bb.min, ...p.bb.max].map((v) => Math.round(v * 1000)).join(","); if (vus.has(k)) doubles.push({ i, texte: `${p.nom} = ${P[vus.get(k)].nom} (même place, même taille)` }); else vus.set(k, i); });
+    ajoute("doublon", "Éléments en double", "Deux éléments occupent exactement la même place : leurs surfaces et quantités sont comptées deux fois.", doubles);
+    return groupes;
+  }
+
+  return { controle, parse, build, depuisStep, projection, releve, CALQUES_RELEVE, matriceAxe, matricePoser, pivoter, annulerPivot, estIdentite, comparer, fusionComparaison, VUES2D, CALQUES_VUE, texteIFC, facades, elevation, orientation, FACES, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
 })();
 export default IFC;

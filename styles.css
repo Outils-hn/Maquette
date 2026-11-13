@@ -429,3 +429,21 @@ footer a:hover, footer button:hover { color: var(--ink); text-decoration: underl
 #vue.viseur-face, #scene.viseur-face canvas { cursor: crosshair; }
 @media (max-width: 760px) { #panOrient { top: auto; bottom: 70px; right: 8px; left: 8px; width: auto; } }
 .c-POTEAU { stroke: #a23ba2; background: #a23ba2; } .c-NIVEAUX { stroke: #0d8fa0; background: #0d8fa0; }
+
+/* metre qui montre son calcul */
+.groupe.calc .formule, .calc-fac .formule { margin: 4px 0 6px; line-height: 1.7; font-variant-numeric: tabular-nums; }
+.groupe.calc .formule i { color: var(--muted); font-style: normal; }
+.calc-liste { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font-size: 12px; }
+.calc-liste li { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; border-bottom: 1px dashed var(--line); }
+.calc-liste li span:first-child { overflow-wrap: anywhere; }
+.ligne-calc > td { background: var(--surface-2, var(--surface)); padding: 12px 14px; }
+.calc-fac { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.calc-fac h5 { margin: 0 0 6px; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--muted); text-transform: uppercase; }
+.calc-fac .tot { display: flex; justify-content: space-between; margin: 8px 0 0; padding-top: 6px; border-top: 1px solid var(--line); }
+.calc-fac .res .grand { font-size: 26px; font-weight: 600; margin: 2px 0; }
+.calc-fac + .note { margin: 10px 0 0; }
+@media (max-width: 900px) { .calc-fac { grid-template-columns: 1fr; } }
+#remarques .cq b { color: var(--text); }
+#remarques .cq .n-cq { margin-left: 6px; padding: 0 6px; border-radius: 9px; background: var(--warn-soft); color: var(--warn); font-weight: 600; font-size: 11px; }
+#remarques .cq li button { all: unset; cursor: pointer; text-decoration: underline dotted; }
+#remarques .cq li button:hover { color: var(--text); }
