@@ -1,0 +1,15 @@
+# Lance les tests automatiques a chaque envoi de code et a chaque demande de fusion.
+# Une croix rouge sur GitHub = un calcul casse : ne pas fusionner.
+name: Tests
+on:
+  push:
+  pull_request:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm test

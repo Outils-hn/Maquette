@@ -1,0 +1,35 @@
+name: Menage des branches
+# 1) A chaque PR fusionnee : supprime sa branche et sa branche de captures.
+# 2) Si .github/menage-branches.txt change sur main : supprime les branches listees (usage ponctuel).
+on:
+  pull_request:
+    types: [closed]
+  push:
+    branches: [main]
+    paths: ['.github/menage-branches.txt']
+permissions:
+  contents: write
+jobs:
+  apres-fusion:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Supprimer la branche fusionnee et ses captures
+        env:
+          BRANCHE: ${{ github.event.pull_request.head.ref }}
+        run: |
+          git push origin --delete "$BRANCHE" || echo "deja absente"
+          git push origin --delete "captures/$BRANCHE" || echo "pas de captures"
+  liste:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Supprimer les branches de la liste
+        run: |
+          while read -r b; do
+            [ -z "$b" ] && continue
+            case "$b" in main|captures/main) continue;; esac
+            git push origin --delete "$b" || echo "deja absente : $b"
+          done < .github/menage-branches.txt

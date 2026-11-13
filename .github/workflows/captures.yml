@@ -1,0 +1,33 @@
+# Check-up et captures d'ecran pour la revue visuelle : sur chaque branche (sauf main),
+# l'appli est ouverte dans un navigateur ; resultats publies sur la branche « captures/<branche> ».
+name: Captures
+on:
+  push:
+    branches-ignore: [main, "captures/**"]
+permissions:
+  contents: write
+jobs:
+  captures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm install --no-save --no-package-lock playwright@1.48.2 && npx playwright install --with-deps chromium
+      - name: Lancer l'appli et verifier
+        run: |
+          mkdir -p out
+          (python3 -m http.server 8090 > /dev/null 2>&1 &)
+          sleep 2
+          node e2e/checkup.mjs out || true
+          grep -c "^ECHEC" out/checkup.txt | xargs -I{} echo "::notice::Check-up Maquette : {} echec(s)"
+          grep "^ECHEC" out/checkup.txt | while IFS= read -r l; do echo "::warning::$l"; done
+      - name: Publier sur la branche captures
+        run: |
+          cd out
+          git init -q -b "captures/${GITHUB_REF_NAME}"
+          git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
+          git add -A && git commit -qm "Captures de ${GITHUB_REF_NAME} (${GITHUB_SHA::7})"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/captures/${GITHUB_REF_NAME}"

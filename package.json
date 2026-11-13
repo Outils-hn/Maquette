@@ -1,0 +1,10 @@
+{
+  "name": "maquette",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Visionneuse de maquettes IFC : 3D, proprietes, listes, mesures et coupes DXF",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}
