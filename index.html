@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=1.8">
+<link rel="stylesheet" href="styles.css?v=1.9">
 </head>
 <body>
 <header class="topbar">
@@ -45,44 +45,60 @@
     <div class="fichier"><div><b id="fichier">Aucune maquette ouverte</b><small id="infos">Fichier IFC des architectes (Revit, ArchiCAD, Allplan…)</small></div></div>
     <span class="prive" title="Le fichier est lu par votre navigateur : il n'est envoyé nulle part.">Lu sur votre ordinateur, rien n'est envoyé</span>
     <span class="grow"></span>
-    <div class="bascules" role="group" aria-label="Panneaux">
-      <button type="button" class="ico" id="tArbo" aria-pressed="true" title="Afficher ou masquer le contenu (étages, types)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
-      <button type="button" class="ico" id="tListes" aria-pressed="true" title="Afficher ou masquer les listes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 14h18"/></svg></button>
-      <button type="button" class="ico" id="tFiche" aria-pressed="true" title="Afficher ou masquer la fiche de l'élément"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
-      <button type="button" class="ico" id="tPlein" aria-pressed="false" title="Plein écran"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
-    </div>
     <button type="button" class="btn" id="bStep" disabled title="Exporter des éléments en STEP pour AutoCAD ou un logiciel 3D"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Exporter en STEP</button>
     <label class="btn primaire" for="ouvrir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Ouvrir un fichier IFC<input id="ouvrir" type="file" accept=".ifc,.ifczip,.zip"></label>
   </div>
 
   <div class="corps">
-    <section class="panneau arbo" aria-label="Contenu de la maquette">
+    <nav class="rail" aria-label="Panneaux">
+      <button type="button" class="ico" data-tiroir="contenu" aria-pressed="false" title="Contenu : étages et types"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg><span class="lbl">Contenu</span></button>
+      <button type="button" class="ico" data-tiroir="recherche" aria-pressed="false" title="Rechercher un élément ( / )"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span class="lbl">Recherche</span></button>
+      <button type="button" class="ico" data-tiroir="remarques" aria-pressed="false" title="Remarques sur la maquette"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/></svg><span class="lbl">Remarques</span><b class="badge" id="nbRem" hidden></b></button>
+      <span class="grow"></span>
+      <button type="button" class="ico" id="tListes" aria-pressed="true" title="Listes (fenêtres, murs, façades)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 14h18M9 14v6"/></svg><span class="lbl">Listes</span></button>
+      <button type="button" class="ico" id="tFiche" aria-pressed="true" title="Fiche de l'élément"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg><span class="lbl">Fiche</span></button>
+      <button type="button" class="ico" id="tPlein" aria-pressed="false" title="Plein écran"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span class="lbl">Plein écran</span></button>
+    </nav>
+    <aside class="tiroir" id="tiroir" aria-label="Panneau latéral">
+    <section class="panneau arbo" data-panneau="contenu" aria-label="Contenu de la maquette">
       <h2>Contenu</h2>
       <div id="filtres" aria-label="Afficher ou masquer par type"></div>
       <div class="defile"><div id="arbre"><p class="vide">Ouvrez une maquette pour voir ses étages et ses éléments.</p></div></div>
     </section>
+    <section class="panneau" data-panneau="recherche" aria-label="Rechercher un élément" hidden>
+      <h2>Recherche</h2>
+      <div class="cherche"><input id="qRech" type="search" placeholder="Nom, type, étage, matériau, GUID" autocomplete="off" aria-label="Rechercher un élément"></div>
+      <div class="defile"><ul id="rRech" class="resultats"><li class="vide">Tapez quelques lettres : les éléments correspondants s'affichent ici.</li></ul></div>
+    </section>
+    <section class="panneau" data-panneau="remarques" aria-label="Remarques sur la maquette" hidden>
+      <h2>Remarques</h2>
+      <div class="defile"><div id="remarques"><p class="vide">Aucune remarque : tout a été lu et dessiné.</p></div></div>
+    </section>
+    </aside>
+    <div class="sep" data-sep="g" role="separator" aria-orientation="vertical" tabindex="0" title="Tirer pour élargir · double-clic pour replier"></div>
 
     <section id="scene" aria-label="Vue 3D de la maquette">
       <canvas id="calque" aria-hidden="true"></canvas>
       <canvas id="vue" role="img" aria-label="Maquette 3D : glisser pour tourner, molette pour zoomer, cliquer un élément pour le sélectionner"></canvas>
       <div class="outils">
         <div class="seg" role="group" aria-label="Vues">
-          <button type="button" data-vue="3d" aria-pressed="true">3D</button>
-          <button type="button" data-vue="plan" aria-pressed="false">Plan</button>
-          <button type="button" data-vue="a" aria-pressed="false" title="Élévation vue depuis −Y">Face A</button>
-          <button type="button" data-vue="b" aria-pressed="false" title="Élévation vue depuis +X">Face B</button>
-          <button type="button" data-vue="c" aria-pressed="false" title="Élévation vue depuis +Y">Face C</button>
-          <button type="button" data-vue="d" aria-pressed="false" title="Élévation vue depuis −X">Face D</button>
+          <button type="button" data-vue="3d" aria-pressed="true" title="Vue 3D">3D</button>
+          <button type="button" data-vue="plan" aria-pressed="false" title="Vue en plan (de dessus)">Plan</button>
+          <button type="button" data-vue="a" aria-pressed="false" title="Élévation Face A">A</button>
+          <button type="button" data-vue="b" aria-pressed="false" title="Élévation Face B">B</button>
+          <button type="button" data-vue="c" aria-pressed="false" title="Élévation Face C">C</button>
+          <button type="button" data-vue="d" aria-pressed="false" title="Élévation Face D">D</button>
         </div>
-        <div class="coupe"><label for="axeCoupe">Coupe</label>
-          <select id="axeCoupe"><option value="">Aucune</option><option value="z">Horizontale (plan)</option><option value="x">Verticale ⊥ X</option><option value="y">Verticale ⊥ Y</option></select>
+        <div class="coupe" title="Coupe"><label for="axeCoupe" class="ico-lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h18"/><path d="M6 6h12v12H6z" stroke-dasharray="2 2.5"/></svg><span class="sr">Coupe</span></label>
+          <select id="axeCoupe" title="Coupe"><option value="">Sans coupe</option><option value="z">Coupe en plan</option><option value="x">Coupe ⊥ X</option><option value="y">Coupe ⊥ Y</option></select>
           <input type="range" id="hauteur" min="0" max="1000" value="500" disabled aria-label="Position de la coupe"><output id="valCoupe">—</output>
           <button type="button" class="mini dxf" id="bDxf" disabled title="Choisissez une coupe ou une face (A à D) pour exporter en DXF">DXF</button></div>
-        <button type="button" class="btn" id="bMesure" aria-pressed="false" title="Mesurer une distance (M)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/></svg>Mesurer</button>
-        <button type="button" class="btn" id="bTout" title="Tout réafficher et recadrer">Tout afficher</button>
+        <div class="seg outils-ico" role="group" aria-label="Outils">
+          <button type="button" id="bMesure" aria-pressed="false" title="Mesurer une distance (M)" aria-label="Mesurer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/></svg></button>
+          <button type="button" id="bTout" title="Tout réafficher et recadrer" aria-label="Tout afficher"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/><circle cx="12" cy="12" r="2.5"/></svg></button>
+        </div>
       </div>
       <div id="bulle" hidden></div>
-      <div id="avert" hidden><button type="button" id="avertBtn" aria-expanded="false"></button><ul id="avertListe" hidden></ul></div>
       <p class="aide">Glisser : tourner · Clic droit ou Maj : déplacer · Molette : zoom · Double-clic : zoomer sur l'élément</p>
       <div id="accueil">
         <div class="accueil-in">
@@ -104,14 +120,17 @@
       <div id="chargement" hidden><div><div class="tourne"></div><span id="chargementTxt">Lecture de la maquette…</span></div></div>
     </section>
 
+    <div class="sep" data-sep="d" role="separator" aria-orientation="vertical" tabindex="0" title="Tirer pour élargir · double-clic pour replier"></div>
     <section class="panneau fiche" aria-label="Élément sélectionné">
-      <h2>Élément</h2>
+      <h2>Élément<button type="button" class="fermer" id="ficheFermer" title="Fermer la fiche" aria-label="Fermer la fiche">×</button></h2>
       <div id="props"><p class="vide">Cliquez un élément dans la vue ou dans la liste pour voir ce que la maquette contient à son sujet.</p></div>
     </section>
   </div>
 
+  <div class="sep h" data-sep="b" role="separator" aria-orientation="horizontal" tabindex="0" title="Tirer pour agrandir · double-clic pour replier"></div>
   <section class="listes" aria-label="Listes">
     <div class="listes-tete" role="tablist" aria-label="Listes">
+      <button type="button" class="pli" id="listesPli" aria-expanded="true" title="Replier ou déplier les listes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg></button>
       <button type="button" role="tab" data-onglet="fen" aria-selected="true">Fenêtres et portes<span></span></button>
       <button type="button" role="tab" data-onglet="murs" aria-selected="false">Murs et surfaces<span></span></button>
       <button type="button" role="tab" data-onglet="fac" aria-selected="false">Façades<span></span></button>
@@ -124,7 +143,7 @@
   </section>
 </div>
 
-<footer>Maquette v1.8 · <button type="button" id="aboutBtn">Conçu par Hugo N. · Imaginé par Virgile G.</button> · 2026 · <a href="https://outils-hn.github.io/?app=Maquette&amp;v=1.8&amp;page=%2FMaquette%2F" target="_blank" rel="noopener noreferrer">Suggestion / bug</a></footer>
+<footer>Maquette v1.9 · <button type="button" id="aboutBtn">Conçu par Hugo N. · Imaginé par Virgile G.</button> · 2026 · <a href="https://outils-hn.github.io/?app=Maquette&amp;v=1.9&amp;page=%2FMaquette%2F" target="_blank" rel="noopener noreferrer">Suggestion / bug</a></footer>
 
 <dialog id="dDxf" aria-labelledby="dxf-titre">
   <div class="dxf-corps">
@@ -172,7 +191,7 @@
   <div class="apropos">
     <h3 id="da-titre">À propos</h3>
     <div class="about-head"><svg width="40" height="40" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5.5" fill="#4D7C0F"/><g transform="translate(4.56 4.56) scale(.62)" fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"><path d="M12 2.5 21 7.5v9L12 21.5 3 16.5v-9z"/><path d="M12 12 21 7.5M12 12 3 7.5M12 12v9.5"/></g></svg>
-      <div><b>Maquette</b><span class="hint">Version 1.8</span></div></div>
+      <div><b>Maquette</b><span class="hint">Version 1.9</span></div></div>
     <p>Conçu et développé par Hugo N.<br>Imaginé par Virgile G.</p>
     <p class="hint">Ouvrir les maquettes IFC reçues des architectes : voir, interroger, mesurer, lister, couper en DXF et exporter en STEP. Le fichier reste sur votre ordinateur.</p>
     <p class="hint">Dernière mise à jour : 13 novembre 2026</p>
@@ -180,7 +199,7 @@
   </div>
 </dialog>
 <div class="toast" id="toast" role="status"></div>
-<script type="module" src="js/app.js?v=1.8"></script>
+<script type="module" src="js/app.js?v=1.9"></script>
 <script>
   // Hors ligne : la copie de l'appli est gardee sur le poste (voir sw.js)
   if ("serviceWorker" in navigator && location.protocol !== "file:") addEventListener("load", () => {

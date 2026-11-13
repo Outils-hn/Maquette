@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.8";
+import IFC from "./core.js?v=1.9";
 
-const VERSION = "1.8";
+const VERSION = "1.9";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -397,6 +397,7 @@ const RESERVEE_CONCEPTEUR = true;
   // ---------- Selection et proprietes ----------
   const nomEtage = (id) => (M.etages.find((e) => e.id === id) || {}).nom || "—";
   function choisir(pi, depuisListe = false) {
+    if (pi != null && !ui.fiche) { ui.fiche = true; majUi(); } // la fiche s'ouvre quand on selectionne un element
     etat.sel = pi;
     document.querySelectorAll("[data-pi]").forEach((el) => el.classList.toggle("sel", +el.dataset.pi === pi));
     if (depuisListe && pi != null) { const el = document.querySelector(`#arbre [data-pi="${pi}"]`); if (el) { el.closest("details").open = true; el.scrollIntoView({ block: "nearest" }); } }
@@ -418,7 +419,7 @@ const RESERVEE_CONCEPTEUR = true;
     const mur = p.mur != null ? M.produits.find((x) => x.id === p.mur) : null;
     let h = `<div class="tete"><span class="pastille" style="--c:${rgba((p.morceaux.find((m) => !m.verre && m.couleur) || {}).couleur?.rgb || IFC.couleurType(p.ifc), 1, 1)}"></span><div><h3>${esc(p.nom)}</h3><p>${esc(p.type)} <span class="mono">${esc(p.ifc.replace(/^IFC/, "Ifc").replace(/(Ifc)(.)(.*)/, (_m, a, b, c) => a + b + c.toLowerCase()))}</span></p></div></div>`;
     h += `<dl class="groupe"><h4>Identité</h4>${ligne("Étage", nomEtage(p.etage))}${ligne("Matériau", p.materiau)}${ligne("Description", p.desc)}${ligne("Type d'objet", p.objType)}${ligne("GlobalId", p.gid, true)}</dl>`;
-    if (p.hauteur != null) h += `<dl class="groupe"><h4>${p.ifc === "IFCDOOR" ? "Porte" : "Fenêtre"}</h4>${ligne("Largeur", `${p.largeur.toLocaleString("fr-CH")} mm`, true)}${ligne("Hauteur", `${p.hauteur.toLocaleString("fr-CH")} mm`, true)}${et ? ligne("Allège (depuis l'étage)", `${mm(bb.min[2] - et.elev)} mm`, true) : ""}${ligne("Dans le mur", mur ? mur.nom : "—")}</dl>`;
+    if (p.hauteur != null) h += `<dl class="groupe"><h4>${p.ifc === "IFCDOOR" ? "Porte" : "Fenêtre"}</h4>${ligne("Largeur", `${p.largeur.toLocaleString("fr-CH")} mm`, true)}${ligne("Hauteur", `${p.hauteur.toLocaleString("fr-CH")} mm`, true)}${et ? ligne("Allège (depuis l'étage)", `${mm(bb.min[2] - et.z)} mm`, true) : ""}${ligne("Dans le mur", mur ? mur.nom : "—")}</dl>`;
     if (p.surf) h += `<dl class="groupe"><h4>Surfaces du mur</h4>${ligne("Longueur", `${mm(p.surf.L)} mm`, true)}${ligne("Hauteur", `${mm(p.surf.h)} mm`, true)}${ligne("Épaisseur", `${mm(p.surf.T)} mm`, true)}${ligne("Surface brute", `${m2(p.surf.brute)} m²`, true)}${ligne("Ouvertures et découpes", `${p.surf.trous} (${m2(p.surf.brute - p.surf.nette)} m²)`, true)}${ligne("Surface nette", `${m2(p.surf.nette)} m²`, true)}</dl>`;
     h += `<dl class="groupe"><h4>Encombrement mesuré</h4>${ligne("X", `${mm(d[0])} mm`, true)}${ligne("Y", `${mm(d[1])} mm`, true)}${ligne("Z", `${mm(d[2])} mm`, true)}${ligne("Niveau bas", `${mm(bb.min[2])} mm`, true)}</dl>`;
     for (const ps of p.psets) h += `<dl class="groupe"><h4>${esc(ps.nom)}</h4>${ps.props.map((x) => ligne(x.nom, x.val)).join("")}</dl>`;
@@ -460,7 +461,7 @@ const RESERVEE_CONCEPTEUR = true;
     if (b.dataset.pi != null) { choisir(+b.dataset.pi, false); if (b.closest("#tables")) cadrerSur(+b.dataset.pi); }
     else if (b.dataset.etage != null) { e.preventDefault(); const k = b.dataset.etage === "aucun" ? "aucun" : +b.dataset.etage; etat.cache.has(k) ? etat.cache.delete(k) : etat.cache.add(k); b.setAttribute("aria-pressed", String(!etat.cache.has(k))); envoyer(); }
     else if (b.dataset.type != null) { const t = b.dataset.type; etat.caches.has(t) ? etat.caches.delete(t) : etat.caches.add(t); b.setAttribute("aria-pressed", String(!etat.caches.has(t))); envoyer(); }
-    else if (b.dataset.plan != null) { e.preventDefault(); const et = M.etages.find((x) => x.id === +b.dataset.plan); poserCoupe("z", et.elev + 1); vue("plan"); }
+    else if (b.dataset.plan != null) { e.preventDefault(); const et = M.etages.find((x) => x.id === +b.dataset.plan); poserCoupe("z", et.z + 1); vue("plan"); }
     else if (b.dataset.vue) vue(b.dataset.vue);
     else if (b.dataset.voirface) vue(b.dataset.voirface);
     else if (b.dataset.elev) ouvrirDxf(b.dataset.elev);
@@ -603,22 +604,73 @@ const RESERVEE_CONCEPTEUR = true;
     if (e.key === "f" || e.key === "F") etat.sel != null ? cadrerSur(etat.sel) : cadrer();
   });
 
-  $("#avertBtn").addEventListener("click", () => { const l = $("#avertListe"); l.hidden = !l.hidden; $("#avertBtn").setAttribute("aria-expanded", String(!l.hidden)); });
-
-  // ---------- Panneaux repliables et plein ecran (choix memorises sur ce poste) ----------
-  const PANNEAUX = { tArbo: "sans-arbo", tListes: "sans-listes", tFiche: "sans-fiche" };
-  let caches = []; try { caches = JSON.parse(localStorage.getItem("maquette-panneaux") || "[]"); } catch (e) { /* ignore */ }
+  // ---------- Disposition « Atelier » : rail, tiroir, fiche, listes, separateurs (memorises sur ce poste) ----------
   const appEl = document.querySelector(".app");
-  function majPanneaux() {
-    for (const [id, cl] of Object.entries(PANNEAUX)) { appEl.classList.toggle(cl, caches.includes(cl)); $("#" + id).setAttribute("aria-pressed", String(!caches.includes(cl))); }
-    try { localStorage.setItem("maquette-panneaux", JSON.stringify(caches)); } catch (e) { /* ignore */ }
+  const ui = { g: 280, d: 320, b: 240, gauche: "contenu", fiche: true, listes: true };
+  try { Object.assign(ui, JSON.parse(localStorage.getItem("maquette-ui") || "{}")); } catch (e) { /* ignore */ }
+  const LIM = { g: [200, 620], d: [260, 680], b: [120, 0.75] };
+  function majUi(sauver = true) {
+    // les tailles tiennent compte des panneaux replies (0 px, ou la seule barre d'onglets pour les listes)
+    const st = appEl.style; st.setProperty("--g", ui.gauche ? ui.g + "px" : "0px"); st.setProperty("--sg", ui.gauche ? "8px" : "0px");
+    st.setProperty("--d", ui.fiche ? ui.d + "px" : "0px"); st.setProperty("--sd", ui.fiche ? "8px" : "0px"); st.setProperty("--b", ui.listes ? ui.b + "px" : "42px");
+    appEl.classList.toggle("sans-gauche", !ui.gauche); appEl.classList.toggle("sans-fiche", !ui.fiche); appEl.classList.toggle("listes-pliees", !ui.listes);
+    document.querySelectorAll("[data-tiroir]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.tiroir === ui.gauche)));
+    document.querySelectorAll("#tiroir > [data-panneau]").forEach((p) => (p.hidden = p.dataset.panneau !== ui.gauche));
+    $("#tFiche").setAttribute("aria-pressed", String(ui.fiche)); $("#tListes").setAttribute("aria-pressed", String(ui.listes));
+    $("#listesPli").setAttribute("aria-expanded", String(ui.listes));
+    if (sauver) try { localStorage.setItem("maquette-ui", JSON.stringify(ui)); } catch (e) { /* ignore */ }
   }
-  for (const [id, cl] of Object.entries(PANNEAUX)) $("#" + id).addEventListener("click", () => { caches = caches.includes(cl) ? caches.filter((x) => x !== cl) : [...caches, cl]; majPanneaux(); });
-  majPanneaux();
+  function ouvrirTiroir(nom, basculer = true) { ui.gauche = basculer && ui.gauche === nom ? null : nom; majUi(); if (ui.gauche === "recherche") setTimeout(() => $("#qRech").focus(), 30); }
+  document.querySelectorAll("[data-tiroir]").forEach((b) => b.addEventListener("click", () => ouvrirTiroir(b.dataset.tiroir)));
+  $("#tFiche").addEventListener("click", () => { ui.fiche = !ui.fiche; majUi(); });
+  $("#ficheFermer").addEventListener("click", () => { ui.fiche = false; majUi(); });
+  $("#tListes").addEventListener("click", () => { ui.listes = !ui.listes; majUi(); });
+  $("#listesPli").addEventListener("click", (e) => { e.stopPropagation(); ui.listes = !ui.listes; majUi(); });
+  // un clic sur un onglet de liste repliee la deplie
+  document.querySelector(".listes-tete").addEventListener("click", (e) => { if (e.target.closest("[data-onglet]") && !ui.listes) { ui.listes = true; majUi(); } });
+  // separateurs : tirer pour redimensionner, double-clic pour replier / deplier, fleches au clavier
+  document.querySelectorAll(".sep").forEach((sp) => {
+    const k = sp.dataset.sep;
+    const replier = () => { if (k === "g") ui.gauche = ui.gauche ? null : "contenu"; else if (k === "d") ui.fiche = !ui.fiche; else ui.listes = !ui.listes; majUi(); };
+    const fixer = (v) => { const [mn, mx] = LIM[k]; const max = mx < 1 ? appEl.clientHeight * mx : mx; ui[k] = Math.round(Math.max(mn, Math.min(max, v))); if (k === "b") ui.listes = true; majUi(false); };
+    sp.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return; e.preventDefault(); sp.setPointerCapture(e.pointerId); sp.classList.add("actif");
+      document.body.classList.add("redim"); if (k === "b") document.body.classList.add("h");
+      const r = appEl.getBoundingClientRect(), tir = $("#tiroir").getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY, d0 = ui.d, b0 = ui.b;
+      const bouge = (ev) => { if (k === "g") fixer(ev.clientX - tir.left); else if (k === "d") fixer(d0 - (ev.clientX - x0)); else fixer(b0 - (ev.clientY - y0)); };
+      const fin = () => { sp.classList.remove("actif"); document.body.classList.remove("redim", "h"); sp.removeEventListener("pointermove", bouge); sp.removeEventListener("pointerup", fin); sp.removeEventListener("pointercancel", fin); majUi(); };
+      sp.addEventListener("pointermove", bouge); sp.addEventListener("pointerup", fin); sp.addEventListener("pointercancel", fin);
+      void r;
+    });
+    sp.addEventListener("dblclick", replier);
+    sp.addEventListener("keydown", (e) => {
+      const pas = e.shiftKey ? 60 : 20, sens = { g: { ArrowRight: 1, ArrowLeft: -1 }, d: { ArrowLeft: 1, ArrowRight: -1 }, b: { ArrowUp: 1, ArrowDown: -1 } }[k][e.key];
+      if (sens) { e.preventDefault(); fixer(ui[k] + sens * pas); majUi(); } else if (e.key === "Enter") replier();
+    });
+  });
+  majUi(false);
   $("#tPlein").addEventListener("click", () => {
     if (document.fullscreenElement) document.exitFullscreen?.(); else document.documentElement.requestFullscreen?.().catch(() => toast("Plein écran indisponible dans ce navigateur."));
   });
   document.addEventListener("fullscreenchange", () => $("#tPlein").setAttribute("aria-pressed", String(!!document.fullscreenElement)));
+
+  // ---------- Recherche d'elements (nom, type, etage, materiau, GUID) ----------
+  const sansAccent = (t) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  let indexRech = null, minuterie = 0;
+  function chercher() {
+    if (!M) { $("#rRech").innerHTML = `<li class="vide">Ouvrez une maquette pour chercher ses éléments.</li>`; return; }
+    if (!indexRech) indexRech = M.produits.map((p) => sansAccent([p.nom, p.type, p.objType, p.materiau, p.gid, nomEtage(p.etage), p.ifc].join(" ")));
+    const mots = sansAccent($("#qRech").value).split(/\s+/).filter(Boolean);
+    if (!mots.length) { $("#rRech").innerHTML = `<li class="vide">Tapez quelques lettres : les éléments correspondants s'affichent ici. Plusieurs mots affinent la recherche (ex. « fenêtre E05 »).</li>`; return; }
+    const res = []; for (let i = 0; i < M.produits.length && res.length < 300; i++) if (mots.every((m) => indexRech[i].includes(m))) res.push(i);
+    const total = mots.length ? M.produits.reduce((n, _, i) => n + (mots.every((m) => indexRech[i].includes(m)) ? 1 : 0), 0) : 0;
+    $("#rRech").innerHTML = (res.length ? res.map((i) => { const p = M.produits[i]; return `<li><button type="button" data-rpi="${i}"${etat.sel === i ? ' aria-current="true"' : ""}><b>${esc(p.nom)}</b><small>${esc(p.type)} · ${esc(nomEtage(p.etage))}</small></button></li>`; }).join("") : `<li class="vide">Aucun élément ne correspond.</li>`)
+      + (total > res.length ? `<li class="info">${total.toLocaleString("fr-CH")} résultats : les 300 premiers sont affichés, précisez la recherche.</li>` : res.length ? `<li class="info">${total} résultat${total > 1 ? "s" : ""}</li>` : "");
+  }
+  $("#qRech").addEventListener("input", () => { clearTimeout(minuterie); minuterie = setTimeout(chercher, 120); });
+  $("#qRech").addEventListener("keydown", (e) => { if (e.key === "Enter") { const b = $("#rRech [data-rpi]"); if (b) b.click(); } if (e.key === "Escape") { $("#qRech").value = ""; chercher(); } });
+  $("#rRech").addEventListener("click", (e) => { const b = e.target.closest("[data-rpi]"); if (!b) return; const i = +b.dataset.rpi; choisir(i); cadrerSur(i); $("#rRech").querySelectorAll("[aria-current]").forEach((x) => x.removeAttribute("aria-current")); b.setAttribute("aria-current", "true"); });
+  document.addEventListener("keydown", (e) => { if (e.key === "/" && !e.target.matches("input, textarea, select") && !document.querySelector("dialog[open]")) { e.preventDefault(); ouvrirTiroir("recherche", false); } });
 
   // ---------- Listes (tableaux) et copie pour Excel ----------
   let ongletActif = "fen";
@@ -626,7 +678,7 @@ const RESERVEE_CONCEPTEUR = true;
     fen: {
       titre: "Fenêtres et portes", filtre: (p) => p.ifc === "IFCWINDOW" || p.ifc === "IFCDOOR",
       cols: ["Nom", "Type", "Étage", "Mur", "Largeur (mm)", "Hauteur (mm)", "Allège (mm)", "Surface (m²)"],
-      ligne: (p) => { const et = M.etages.find((e) => e.id === p.etage); const mur = M.produits.find((x) => x.id === p.mur); return [p.nom, p.type, nomEtage(p.etage), mur ? mur.nom : "—", p.largeur, p.hauteur, et ? Math.round((p.bb.min[2] - et.elev) * 1000) : "", p.largeur && p.hauteur ? +(p.largeur * p.hauteur / 1e6).toFixed(2) : ""]; },
+      ligne: (p) => { const et = M.etages.find((e) => e.id === p.etage); const mur = M.produits.find((x) => x.id === p.mur); return [p.nom, p.type, nomEtage(p.etage), mur ? mur.nom : "—", p.largeur, p.hauteur, et ? Math.round((p.bb.min[2] - et.z) * 1000) : "", p.largeur && p.hauteur ? +(p.largeur * p.hauteur / 1e6).toFixed(2) : ""]; },
       total: (L) => ["Total", `${L.length} éléments`, "", "", "", "", "", +L.reduce((s, r) => s + (+r[7] || 0), 0).toFixed(2)],
     },
     murs: {
@@ -693,12 +745,13 @@ const RESERVEE_CONCEPTEUR = true;
     construire(); arbre(); onglet(ongletActif); afficherProps(); majOutils();
     $("#fichier").textContent = nom; document.title = `${nom} — Maquette`;
     $("#infos").textContent = `${m.schema}${m.logiciel ? ` · ${m.logiciel}` : ""} · ${m.produits.length} éléments · lu en ${ms < 1000 ? `${Math.max(1, Math.round(ms))} ms` : `${(ms / 1000).toFixed(1).replace(".", ",")} s`}`;
-    // avertissements en langage courant (le detail technique reste au survol)
-    const lisible = [...new Set(m.avertissements.map((a) => /^Ouvertures/.test(a) ? "certaines ouvertures ne sont pas découpées" : /^Découpes/.test(a) ? "certaines découpes de forme sont ignorées" : /^Élément long/.test(a) ? "certains éléments sont longs à calculer (détail au survol)" : /^Élément ignoré/.test(a) ? "un élément bloquant a été ignoré (détail au survol)" : "quelques formes ne sont pas dessinées"))];
-    // pastille discrete : « n remarques », a deplier pour le detail
-    const av = $("#avert"); av.hidden = !lisible.length;
-    $("#avertBtn").textContent = `⚠ ${lisible.length} remarque${lisible.length > 1 ? "s" : ""} sur la maquette`; $("#avertBtn").setAttribute("aria-expanded", "false"); $("#avertListe").hidden = true;
-    $("#avertListe").innerHTML = lisible.map((x) => `<li>${esc(x.replace(/ \(détail au survol\)/, "").replace(/^./, (c) => c.toUpperCase()))}</li>`).join("") + `<li><small>${m.avertissements.map(esc).join("<br>")}</small></li>`;
+    // remarques : badge sur le rail, detail dans le panneau « Remarques » (textes complets, sans coupure)
+    const groupes = new Map();
+    for (const a of m.avertissements) { const t = /^Ouvertures/.test(a) ? "Ouvertures non découpées" : /^Découpes/.test(a) ? "Découpes de forme ignorées" : /^Élément long/.test(a) ? "Éléments longs à calculer" : /^Élément ignoré/.test(a) ? "Éléments ignorés (calcul bloqué)" : "Formes non dessinées"; if (!groupes.has(t)) groupes.set(t, []); groupes.get(t).push(a); }
+    const EXPL = { "Ouvertures non découpées": "Certaines fenêtres ou trémies n'ont pas pu être percées dans leur mur ou leur dalle (forme trop complexe ou trop longue à calculer) : l'élément est affiché plein.", "Découpes de forme ignorées": "Certains éléments sont coupés dans la maquette par une forme particulière : ils sont affichés avant la découpe.", "Éléments longs à calculer": "Ces éléments ont pris plusieurs secondes : c'est eux qui allongent la lecture.", "Éléments ignorés (calcul bloqué)": "Le calcul de ces éléments bloquait la lecture : ils ne sont pas affichés.", "Formes non dessinées": "Quelques types de formes ne sont pas encore pris en charge." };
+    $("#nbRem").hidden = !groupes.size; $("#nbRem").textContent = groupes.size;
+    $("#remarques").innerHTML = groupes.size ? [...groupes].map(([t, L]) => `<div class="rq"><b>${esc(t)}</b><p>${esc(EXPL[t])}</p>${L.some((x) => /#|:/.test(x)) ? `<ul>${L.filter((x) => /:/.test(x)).map((x) => `<li>${esc(x.replace(/^[^:]+:\s*/, ""))}</li>`).join("")}</ul>` : ""}</div>`).join("") : `<p class="vide">Aucune remarque : tout a été lu et dessiné.</p>`;
+    indexRech = null; if (ui.gauche === "recherche") chercher();
     dimensionner(); vue("3d");
   }
   // Lecture dans un travailleur en arriere-plan (la page reste fluide) ; a defaut, directement
@@ -713,7 +766,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.8", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.9", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     let dernier = null, attente = false, tDernier = Date.now();
     // garde-fou : un element dont le calcul bloque plus de 30 s est ignore, et la lecture repart sans lui
     veille = setInterval(() => {

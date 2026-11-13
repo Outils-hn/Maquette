@@ -264,21 +264,109 @@ fieldset.choix label:has(input:disabled) { opacity: .45; cursor: default; }
 dialog#dStep { width: min(460px, calc(100vw - 32px)); }
 @media (max-width: 760px) { #bStep { display: none; } }
 
-/* ---------- Plein ecran : l'appli occupe toute la fenetre, panneaux repliables ---------- */
+/* ---------- Disposition « Atelier » : rail d'icones, tiroir lateral, fiche et listes, separateurs a tirer ---------- */
 .topbar-in { max-width: none; }
-.app { max-width: none; height: calc(100dvh - 59px - 26px); }
-footer { max-width: none; padding: 5px 16px 6px; font-size: 12px; }
-.bascules { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
-.bascules .ico { width: 32px; height: 30px; display: grid; place-items: center; border: 0; background: transparent; border-radius: 6px; color: var(--muted); cursor: pointer; }
-.bascules .ico svg { width: 17px; height: 17px; }
-.bascules .ico:hover { color: var(--ink); background: var(--surface-2, rgba(0,0,0,.04)); }
-.bascules .ico[aria-pressed="true"] { color: var(--app-ink); background: color-mix(in srgb, var(--app) 12%, transparent); }
-.app.sans-arbo .arbo, .app.sans-fiche .fiche, .app.sans-listes .listes { display: none; }
-@media (min-width: 1101px) {
-  .app.sans-arbo .corps { grid-template-columns: minmax(0, 1fr) 300px; }
-  .app.sans-fiche .corps { grid-template-columns: 250px minmax(0, 1fr); }
-  .app.sans-arbo.sans-fiche .corps { grid-template-columns: minmax(0, 1fr); }
+footer { max-width: none; padding: 4px 16px 6px; font-size: 12px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (min-width: 901px) {
+  .app {
+    max-width: none; height: calc(100dvh - 59px - 25px); padding: 8px 12px 0; gap: 0;
+    --g: 280px; --sg: 8px; --d: 320px; --sd: 8px; --b: 240px;
+    grid-template-columns: 52px var(--g) var(--sg) minmax(0, 1fr) var(--sd) var(--d);
+    grid-template-rows: auto minmax(0, 1fr) 8px var(--b);
+    grid-template-areas: "barre barre barre barre barre barre" "rail tiroir sepg scene sepd fiche" "rail sepb sepb sepb sepb sepb" "rail listes listes listes listes listes";
+  }
+  .barre { grid-area: barre; padding-bottom: 8px; }
+  .corps { display: contents; }
+  .rail { grid-area: rail; }
+  .tiroir { grid-area: tiroir; }
+  .sep[data-sep="g"] { grid-area: sepg; }
+  #scene { grid-area: scene; }
+  .sep[data-sep="d"] { grid-area: sepd; }
+  .fiche { grid-area: fiche; }
+  .sep[data-sep="b"] { grid-area: sepb; }
+  .listes { grid-area: listes; height: auto; }
+  .fiche { max-height: none; }
+  .app.sans-gauche { --g: 0px; --sg: 0px; } .app.sans-gauche .tiroir, .app.sans-gauche .sep[data-sep="g"] { display: none; }
+  .app.sans-fiche { --d: 0px; --sd: 0px; } .app.sans-fiche .fiche, .app.sans-fiche .sep[data-sep="d"] { display: none; }
+  .app.listes-pliees { --b: 40px; } .app.listes-pliees #tables, .app.listes-pliees .note-fac { display: none; }
+  .app.listes-pliees .listes-tete { border-bottom: 0; }
 }
-.app.sans-listes { grid-template-rows: auto minmax(0, 1fr); }
-:fullscreen .app, .plein .app { height: calc(100dvh - 59px - 26px); }
-@media (max-width: 760px) { .bascules #tArbo, .bascules #tFiche { display: none; } .app { height: auto; } }
+/* rail */
+.rail { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 8px 10px 0; }
+.rail .ico { position: relative; width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid transparent; background: transparent; border-radius: 10px; color: var(--muted); cursor: pointer; }
+.rail .ico svg { width: 20px; height: 20px; }
+.rail .ico:hover { color: var(--ink); background: var(--surface); border-color: var(--line); }
+.rail .ico[aria-pressed="true"] { color: var(--app-ink); background: var(--app-soft); border-color: color-mix(in srgb, var(--app) 35%, transparent); }
+.rail .lbl { display: none; }
+.rail .badge { position: absolute; top: 3px; right: 3px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--warn); color: #fff; font: 700 10px/16px var(--sans); text-align: center; }
+.rail .grow { flex: 1; }
+/* tiroir lateral et panneaux */
+.tiroir { min-height: 0; display: flex; flex-direction: column; }
+.tiroir > .panneau { flex: 1; }
+.tiroir > [hidden] { display: none !important; }
+.cherche { padding: 0 12px 8px; }
+.cherche input { width: 100%; font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--field); color: var(--ink); }
+.cherche input:focus { outline: 2px solid color-mix(in srgb, var(--app) 40%, transparent); border-color: var(--app); }
+.resultats { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.resultats li.vide, .resultats li.info { color: var(--muted); font-size: 13px; padding: 6px 4px; }
+.resultats button { width: 100%; text-align: left; border: 0; background: transparent; padding: 7px 8px; border-radius: 7px; cursor: pointer; display: grid; gap: 1px; color: var(--ink); }
+.resultats button:hover, .resultats button[aria-current="true"] { background: var(--app-soft); }
+.resultats b { font-weight: 500; font-size: 13px; overflow-wrap: anywhere; }
+.resultats small { color: var(--muted); font-size: 11.5px; }
+#remarques { display: grid; gap: 10px; padding: 0 4px; font-size: 13px; }
+#remarques .rq { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--surface); }
+#remarques .rq b { display: block; font-weight: 600; color: var(--warn); margin-bottom: 2px; }
+#remarques .rq p { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+#remarques .rq ul { margin: 6px 0 0; padding-left: 16px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; display: grid; gap: 3px; }
+/* fiche : bouton fermer, textes qui passent a la ligne */
+.fiche > h2 { display: flex; align-items: center; justify-content: space-between; }
+.fermer { border: 0; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; width: 26px; height: 26px; border-radius: 6px; cursor: pointer; margin: -6px -6px -6px 0; }
+.fermer:hover { background: var(--app-soft); color: var(--ink); }
+#props dd, #props td, #props .val { overflow-wrap: anywhere; }
+/* separateurs a tirer */
+.sep { position: relative; cursor: col-resize; touch-action: none; }
+.sep.h { cursor: row-resize; }
+.sep::after { content: ""; position: absolute; inset: 0 3px; border-radius: 2px; transition: background .12s; }
+.sep.h::after { inset: 3px 0; }
+.sep:hover::after, .sep:focus-visible::after, .sep.actif::after { background: var(--app); opacity: .55; }
+.sep:focus-visible { outline: none; }
+body.redim, body.redim * { cursor: col-resize !important; user-select: none; }
+body.redim.h, body.redim.h * { cursor: row-resize !important; }
+/* listes : bouton pour replier */
+.pli { width: 30px; height: 28px; display: grid; place-items: center; border: 0; background: transparent; border-radius: 6px; color: var(--muted); cursor: pointer; }
+.pli svg { width: 18px; height: 18px; transition: transform .15s; }
+.pli:hover { background: var(--app-soft); color: var(--ink); }
+.app.listes-pliees .pli svg { transform: rotate(180deg); }
+/* barre d'outils 3D compacte, sur une seule ligne */
+.outils { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; right: auto; max-width: calc(100% - 20px); }
+.outils::-webkit-scrollbar { display: none; }
+.seg button { padding: 5px 9px; white-space: nowrap; }
+.outils-ico button { display: grid; place-items: center; padding: 4px 8px; }
+.outils-ico svg { width: 17px; height: 17px; }
+.ico-lbl { display: grid; place-items: center; color: var(--muted); }
+.ico-lbl svg { width: 17px; height: 17px; }
+.coupe { white-space: nowrap; }
+.coupe input[type=range] { width: 110px; }
+.coupe output { min-width: 64px; }
+/* telephone et petite tablette : tout empile, rail en barre d'onglets */
+@media (max-width: 900px) {
+  .app { height: auto; }
+  .corps { display: flex; flex-direction: column; gap: 10px; }
+  #scene { order: 1; height: 62vh; }
+  .rail { order: 2; flex-direction: row; justify-content: flex-start; flex-wrap: wrap; padding: 0; }
+  .rail .grow, .rail #tFiche { display: none; }
+  .tiroir { order: 3; max-height: 60vh; }
+  .app.sans-gauche .tiroir { display: none; }
+  .fiche { order: 4; }
+  .app.sans-fiche .fiche { display: none; }
+  .sep { display: none; }
+  .listes { height: 340px; }
+  .app.listes-pliees .listes { height: auto; } .app.listes-pliees #tables { display: none; }
+}
+@media (max-width: 900px) {
+  .outils { flex-wrap: wrap; overflow: visible; right: 10px; align-items: flex-start; }
+  .coupe { flex-wrap: nowrap; max-width: 100%; }
+  .coupe input[type=range] { flex: 1; width: 70px; min-width: 50px; }
+  .coupe output { min-width: 0; }
+}
