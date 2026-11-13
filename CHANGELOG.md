@@ -2,6 +2,12 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.4 — 13 novembre 2026
+
+- Nouveauté : les très grosses maquettes s'ouvrent (testé jusqu'à 317 Mo), avec une barre de progression, et les fichiers compressés .ifczip aussi. La sélection d'un élément est instantanée.
+- Nouveauté : armatures, mains courantes et tubes sont dessinés.
+- Corrigé : la sélection et les arêtes s'affichaient en noir ; certains fichiers « pièges » faisaient planter ou ralentissaient fortement la lecture.
+
 ## 1.3 — 13 novembre 2026
 
 - Nouveauté : les vraies maquettes Revit et ArchiCAD s'ouvrent correctement (bonne échelle, ouvertures découpées dans tous les murs, profils arrondis et profilés acier, murs coupés sous les toitures), plus vite et avec des messages clairs.

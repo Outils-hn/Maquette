@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.3";
+import IFC from "./core.js?v=1.4";
 
-const VERSION = "1.3";
+const VERSION = "1.4";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -31,7 +31,9 @@ const RESERVEE_CONCEPTEUR = true;
   const dt = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
   // ---------- Geometrie a dessiner ----------
-  let V = new Float64Array(0), TRI = [], LIN = [];
+  // Geometrie : lue directement dans les pieces compactes du modele (Float32, relatives a leur origine m.o)
+  // O : centre de la maquette, les positions envoyees a la carte graphique lui sont relatives (precision)
+  let O = [0, 0, 0], sigPrec = null;
   const LUM = nrm([-0.45, -0.7, 0.85]);
   function couleurDe(p, m) {
     if (m.verre) return { rgb: IFC.VERRE, a: 0.42 };
@@ -51,31 +53,33 @@ const RESERVEE_CONCEPTEUR = true;
     return out;
   }
   function construire() {
-    const verts = []; TRI = []; LIN = [];
-    const zc = etat.coupe;
-    const pousse = (p) => { verts.push(p[0], p[1], p[2]); return verts.length / 3 - 1; };
-    function tri(a, b, c, pi, col, sh) { TRI.push({ v: pousse(a), p: pi, col, sh }); pousse(b); pousse(c); }
-    M.produits.forEach((p, pi) => {
-      for (const m of p.morceaux) {
-        const col = couleurDe(p, m);
-        for (const t of m.tris) {
-          const n = nrm(crs([t[1][0] - t[0][0], t[1][1] - t[0][1], t[1][2] - t[0][2]], [t[2][0] - t[0][0], t[2][1] - t[0][1], t[2][2] - t[0][2]]));
-          if (!isFinite(n[0])) continue;
-          const sh = 0.62 + 0.38 * Math.abs(dt(n, LUM));
-          const P = coupeZ(t, zc); if (P.length < 3) continue;
-          for (let i = 1; i < P.length - 1; i++) tri(P[0], P[i], P[i + 1], pi, col, sh);
-        }
-        if (m.verre) continue;
-        for (const [a0, b0] of m.aretes) {
-          let a = a0, b = b0;
-          if (zc) { const k = AXE[zc.axe], v = zc.v; if (a[k] > v && b[k] > v) continue; if (a[k] > v || b[k] > v) { const t = (v - a[k]) / (b[k] - a[k]); const q = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), a[2] + t * (b[2] - a[2])]; q[k] = v; if (a[k] > v) a = q; else b = q; } }
-          if (Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-6) continue;
-          LIN.push({ v: pousse(a), p: pi }); pousse(b);
-        }
+    const b = M.bbTout; O = b.min.map((v, i) => (v + b.max[i]) / 2);
+    sigPrec = null; envoyer();
+  }
+  // Triangles d'un element, deja decoupes par la coupe : f(ax,ay,az, bx,by,bz, cx,cy,cz, m)
+  function pourTriangles(p, f) {
+    const zc = etat.coupe, k = zc ? AXE[zc.axe] : 0, v = zc ? zc.v : 0;
+    for (const m of p.morceaux) {
+      const T = m.T, o = m.o;
+      for (let i = 0; i < T.length; i += 9) {
+        const a = [T[i] + o[0], T[i + 1] + o[1], T[i + 2] + o[2]], b = [T[i + 3] + o[0], T[i + 4] + o[1], T[i + 5] + o[2]], c = [T[i + 6] + o[0], T[i + 7] + o[1], T[i + 8] + o[2]];
+        if (!zc || (a[k] <= v && b[k] <= v && c[k] <= v)) { f(a, b, c, m); continue; }
+        const P = coupeZ([a, b, c], zc); for (let j = 1; j < P.length - 1; j++) f(P[0], P[j], P[j + 1], m);
       }
-    });
-    V = new Float64Array(verts);
-    envoyer();
+    }
+  }
+  function pourAretes(p, f) {
+    const zc = etat.coupe;
+    for (const m of p.morceaux) {
+      if (m.verre) continue;
+      const A = m.A, o = m.o;
+      for (let i = 0; i < A.length; i += 6) {
+        let a = [A[i] + o[0], A[i + 1] + o[1], A[i + 2] + o[2]], b = [A[i + 3] + o[0], A[i + 4] + o[1], A[i + 5] + o[2]];
+        if (zc) { const k = AXE[zc.axe], v = zc.v; if (a[k] > v && b[k] > v) continue; if (a[k] > v || b[k] > v) { const t = (v - a[k]) / (b[k] - a[k]); const q = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), a[2] + t * (b[2] - a[2])]; q[k] = v; if (a[k] > v) a = q; else b = q; } }
+        if (Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 1e-6) continue;
+        f(a, b);
+      }
+    }
   }
   const rgba = (c, k, a) => `rgba(${Math.round(Math.min(1, c[0] * k) * 255)},${Math.round(Math.min(1, c[1] * k) * 255)},${Math.round(Math.min(1, c[2] * k) * 255)},${a})`;
 
@@ -101,29 +105,57 @@ const RESERVEE_CONCEPTEUR = true;
   const loc = { pos: gl.getAttribLocation(prog, "pos"), col: gl.getAttribLocation(prog, "col") };
   const uni = Object.fromEntries(["eye", "ar", "au", "af", "proj", "ortho"].map((n) => [n, gl.getUniformLocation(prog, n)]));
   const lots = {}; // opaque, verre, aretes, aretesSel
-  function lot(nom, pos, col, mode) {
+  function lot(nom, pos, col, n, mode) {
     const L = lots[nom] || (lots[nom] = { bp: gl.createBuffer(), bc: gl.createBuffer() });
-    gl.bindBuffer(gl.ARRAY_BUFFER, L.bp); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pos), gl.DYNAMIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, L.bc); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(col), gl.DYNAMIC_DRAW);
-    L.n = pos.length / 3; L.mode = mode;
+    gl.bindBuffer(gl.ARRAY_BUFFER, L.bp); gl.bufferData(gl.ARRAY_BUFFER, pos.subarray(0, n * 3), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, L.bc); gl.bufferData(gl.ARRAY_BUFFER, col.subarray(0, n * 4), gl.STATIC_DRAW);
+    L.n = n; L.mode = mode;
   }
   const hexRgb = (h) => { const m = h.match(/rgba?\(([^)]+)\)/); if (m) { const v = m[1].split(",").map(Number); return [v[0] / 255, v[1] / 255, v[2] / 255, v[3] ?? 1]; } const x = h.replace("#", ""); return [parseInt(x.slice(0, 2), 16) / 255, parseInt(x.slice(2, 4), 16) / 255, parseInt(x.slice(4, 6), 16) / 255, 1]; };
+  // tampon extensible : positions Float32 (relatives a O) + couleurs sur 4 octets
+  function tampon(n) {
+    const t = { p: new Float32Array(Math.max(n, 1) * 3), c: new Uint8Array(Math.max(n, 1) * 4), n: 0 };
+    t.ajout = (q, r, g, b, a) => {
+      if (t.n * 3 + 3 > t.p.length) { const p2 = new Float32Array(t.p.length * 2), c2 = new Uint8Array(t.c.length * 2); p2.set(t.p); c2.set(t.c); t.p = p2; t.c = c2; }
+      const o = t.n * 3, c = t.n * 4; t.p[o] = q[0] - O[0]; t.p[o + 1] = q[1] - O[1]; t.p[o + 2] = q[2] - O[2]; t.c[c] = r; t.c[c + 1] = g; t.c[c + 2] = b; t.c[c + 3] = a; t.n++;
+    };
+    return t;
+  }
+  const ARETE = [0.27, 0.28, 0.3, 1]; // gris fonce : lisible sans noircir la maquette
+  const ombre = (a, b, c) => { const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2]; const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, l = Math.hypot(nx, ny, nz); return l > 0 ? 0.62 + 0.38 * Math.abs((nx * LUM[0] + ny * LUM[1] + nz * LUM[2]) / l) : -1; };
+  // Tout redessiner seulement si la visibilite, la coupe ou le theme changent ; la selection a son propre calque (instantane)
   function envoyer() {
     if (!M) return;
-    const sel = hexRgb(css("--sel-fill")), arete = hexRgb(css("--edge")), areteSel = hexRgb(css("--accent"));
-    const op = { p: [], c: [] }, ve = { p: [], c: [] }, ar = { p: [], c: [] }, as = { p: [], c: [] };
-    for (const t of TRI) {
-      if (!visible(t.p)) continue;
-      const dest = t.col.a < 1 && etat.sel !== t.p ? ve : op;
-      const c = etat.sel === t.p ? [sel[0], sel[1], sel[2], 1] : [Math.min(1, t.col.rgb[0] * t.sh), Math.min(1, t.col.rgb[1] * t.sh), Math.min(1, t.col.rgb[2] * t.sh), t.col.a];
-      for (let k = 0; k < 3; k++) { const v = (t.v + k) * 3; dest.p.push(V[v], V[v + 1], V[v + 2]); dest.c.push(...c); }
+    const vis = M.produits.map((_, i) => visible(i));
+    const arete = ARETE, sig = vis.map((x) => (x ? 1 : 0)).join("") + JSON.stringify(etat.coupe);
+    if (sig !== sigPrec) {
+      sigPrec = sig;
+      let nt = 0, nl = 0; M.produits.forEach((p, i) => { if (vis[i]) for (const m of p.morceaux) { nt += m.T.length / 9; nl += m.A.length / 6; } });
+      const op = tampon(nt * 3), ve = tampon(64), ar = tampon(nl * 2);
+      const ea = [arete[0] * 255, arete[1] * 255, arete[2] * 255, arete[3] * 255].map(Math.round);
+      M.produits.forEach((p, pi) => {
+        if (!vis[pi]) return;
+        let mc = null, col = null;
+        pourTriangles(p, (a, b, c, m) => {
+          if (m !== mc) { mc = m; col = couleurDe(p, m); }
+          const sh = ombre(a, b, c); if (sh < 0) return;
+          const d = col.a < 1 ? ve : op, r = Math.round(Math.min(1, col.rgb[0] * sh) * 255), g = Math.round(Math.min(1, col.rgb[1] * sh) * 255), bl = Math.round(Math.min(1, col.rgb[2] * sh) * 255), al = Math.round(col.a * 255);
+          d.ajout(a, r, g, bl, al); d.ajout(b, r, g, bl, al); d.ajout(c, r, g, bl, al);
+        });
+        pourAretes(p, (a, b) => { ar.ajout(a, ea[0], ea[1], ea[2], ea[3]); ar.ajout(b, ea[0], ea[1], ea[2], ea[3]); });
+      });
+      lot("opaque", op.p, op.c, op.n, gl.TRIANGLES); lot("verre", ve.p, ve.c, ve.n, gl.TRIANGLES); lot("aretes", ar.p, ar.c, ar.n, gl.LINES);
     }
-    for (const l of LIN) {
-      if (!visible(l.p)) continue;
-      const dest = etat.sel === l.p ? as : ar, c = etat.sel === l.p ? areteSel : arete;
-      for (let k = 0; k < 2; k++) { const v = (l.v + k) * 3; dest.p.push(V[v], V[v + 1], V[v + 2]); dest.c.push(...c); }
+    // calque de la selection, dessine par-dessus
+    // selection : couleur de l'appli eclaircie (remplissage) et pleine (aretes)
+    const app = hexRgb(css("--app") || "#4d7c0f"), sel = app.map((x, i) => (i < 3 ? x * 0.55 + 0.45 : 1)), as = app;
+    const ts = tampon(64), ls = tampon(64);
+    if (etat.sel != null && vis[etat.sel]) {
+      const p = M.produits[etat.sel], s8 = sel.map((x) => Math.round(x * 255)), a8 = as.map((x) => Math.round(x * 255));
+      pourTriangles(p, (a, b, c) => { ts.ajout(a, s8[0], s8[1], s8[2], 255); ts.ajout(b, s8[0], s8[1], s8[2], 255); ts.ajout(c, s8[0], s8[1], s8[2], 255); });
+      pourAretes(p, (a, b) => { ls.ajout(a, a8[0], a8[1], a8[2], 255); ls.ajout(b, a8[0], a8[1], a8[2], 255); });
     }
-    lot("opaque", op.p, op.c, gl.TRIANGLES); lot("verre", ve.p, ve.c, gl.TRIANGLES); lot("aretes", ar.p, ar.c, gl.LINES); lot("aretesSel", as.p, as.c, gl.LINES);
+    lot("sel", ts.p, ts.c, ts.n, gl.TRIANGLES); lot("aretesSel", ls.p, ls.c, ls.n, gl.LINES);
     redessiner();
   }
   let demande = false;
@@ -140,13 +172,14 @@ const RESERVEE_CONCEPTEUR = true;
     const dc = dt([c[0] - R.e[0], c[1] - R.e[1], c[2] - R.e[2]], R.f);
     let zn = dc - rad * 1.5, zf = dc + rad * 1.5;
     if (!cam.ortho) zn = Math.max(0.05, zn, zf / 2000);
-    gl.uniform3fv(uni.eye, R.e); gl.uniform3fv(uni.ar, R.r); gl.uniform3fv(uni.au, R.u); gl.uniform3fv(uni.af, R.f);
+    gl.uniform3fv(uni.eye, [R.e[0] - O[0], R.e[1] - O[1], R.e[2] - O[2]]); gl.uniform3fv(uni.ar, R.r); gl.uniform3fv(uni.au, R.u); gl.uniform3fv(uni.af, R.f);
     gl.uniform1f(uni.ortho, cam.ortho ? 1 : 0);
     gl.uniform4f(uni.proj, cam.ortho ? cam.ech * 2 / W : 2 * R.F / W, cam.ortho ? cam.ech * 2 / H : 2 * R.F / H, zn, cam.ortho ? zf - zn : zf);
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
-    const tracer = (L) => { if (!L || !L.n) return; gl.bindBuffer(gl.ARRAY_BUFFER, L.bp); gl.enableVertexAttribArray(loc.pos); gl.vertexAttribPointer(loc.pos, 3, gl.FLOAT, false, 0, 0); gl.bindBuffer(gl.ARRAY_BUFFER, L.bc); gl.enableVertexAttribArray(loc.col); gl.vertexAttribPointer(loc.col, 4, gl.FLOAT, false, 0, 0); gl.drawArrays(L.mode, 0, L.n); };
+    const tracer = (L) => { if (!L || !L.n) return; gl.bindBuffer(gl.ARRAY_BUFFER, L.bp); gl.enableVertexAttribArray(loc.pos); gl.vertexAttribPointer(loc.pos, 3, gl.FLOAT, false, 0, 0); gl.bindBuffer(gl.ARRAY_BUFFER, L.bc); gl.enableVertexAttribArray(loc.col); gl.vertexAttribPointer(loc.col, 4, gl.UNSIGNED_BYTE, true, 0, 0); gl.drawArrays(L.mode, 0, L.n); };
     gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
     gl.disable(gl.BLEND); gl.depthMask(true); tracer(lots.opaque);
+    gl.polygonOffset(0, 0); tracer(lots.sel);
     gl.disable(gl.POLYGON_OFFSET_FILL);
     tracer(lots.aretes); tracer(lots.aretesSel);
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); tracer(lots.verre); gl.depthMask(true);
@@ -160,17 +193,17 @@ const RESERVEE_CONCEPTEUR = true;
   }
   function dessinerMesure(R) {
     if (!etat.pts.length) return;
-    const acc = css("--accent");
+    const acc = css("--app");
     const P = etat.pts.map((p) => versEcran(p, R));
     c2.save();
     if (P.length === 2) { c2.strokeStyle = acc; c2.lineWidth = 2; c2.setLineDash([6, 4]); c2.beginPath(); c2.moveTo(P[0][0], P[0][1]); c2.lineTo(P[1][0], P[1][1]); c2.stroke(); c2.setLineDash([]); }
-    for (const q of P) { c2.fillStyle = css("--panel"); c2.strokeStyle = acc; c2.lineWidth = 2; c2.beginPath(); c2.arc(q[0], q[1], 5, 0, 7); c2.fill(); c2.stroke(); }
+    for (const q of P) { c2.fillStyle = css("--surface"); c2.strokeStyle = acc; c2.lineWidth = 2; c2.beginPath(); c2.arc(q[0], q[1], 5, 0, 7); c2.fill(); c2.stroke(); }
     if (P.length === 2) {
       const d = dist3(etat.pts[0], etat.pts[1]);
       const txt = `${mm(d)} mm`; c2.font = "600 13px 'IBM Plex Mono', ui-monospace, monospace";
       const w = c2.measureText(txt).width + 16, mx = (P[0][0] + P[1][0]) / 2, my = (P[0][1] + P[1][1]) / 2 - 18;
       c2.fillStyle = acc; roundRect(mx - w / 2, my - 12, w, 24, 6); c2.fill();
-      c2.fillStyle = css("--on-accent"); c2.textAlign = "center"; c2.textBaseline = "middle"; c2.fillText(txt, mx, my + 1);
+      c2.fillStyle = css("--on-app"); c2.textAlign = "center"; c2.textBaseline = "middle"; c2.fillText(txt, mx, my + 1);
     }
     c2.restore();
   }
@@ -196,16 +229,27 @@ const RESERVEE_CONCEPTEUR = true;
   }
   function viser(px, py) {
     const { o, d, R } = rayon(px, py); let best = null, bt = Infinity;
-    for (const t of TRI) {
-      if (!visible(t.p)) continue;
-      const v = t.v * 3;
-      const a = [V[v], V[v + 1], V[v + 2]], b = [V[v + 3], V[v + 4], V[v + 5]], c = [V[v + 6], V[v + 7], V[v + 8]];
-      const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-      const pv = crs(d, e2), det = dt(e1, pv); if (Math.abs(det) < 1e-12) continue;
-      const tv = [o[0] - a[0], o[1] - a[1], o[2] - a[2]], u = dt(tv, pv) / det; if (u < 0 || u > 1) continue;
-      const q = crs(tv, e1), w = dt(d, q) / det; if (w < 0 || u + w > 1) continue;
-      const s = dt(e2, q) / det; if (s > 1e-4 && s < bt) { bt = s; best = { t, a, b, c }; }
-    }
+    const zc = etat.coupe, kz = zc ? AXE[zc.axe] : 0;
+    M.produits.forEach((p, pi) => {
+      if (!visible(pi)) return;
+      // test rapide sur la boite de l'element
+      const bb = p.bb; let t0 = 0, t1 = Infinity;
+      for (let k = 0; k < 3; k++) { if (Math.abs(d[k]) < 1e-12) { if (o[k] < bb.min[k] - 1e-6 || o[k] > bb.max[k] + 1e-6) return; continue; } let ta = (bb.min[k] - 1e-6 - o[k]) / d[k], tb = (bb.max[k] + 1e-6 - o[k]) / d[k]; if (ta > tb) [ta, tb] = [tb, ta]; t0 = Math.max(t0, ta); t1 = Math.min(t1, tb); if (t0 > t1) return; }
+      if (t0 > bt) return;
+      for (const m of p.morceaux) {
+        const T = m.T, mo = m.o;
+        for (let i = 0; i < T.length; i += 9) {
+          const a = [T[i] + mo[0], T[i + 1] + mo[1], T[i + 2] + mo[2]], b = [T[i + 3] + mo[0], T[i + 4] + mo[1], T[i + 5] + mo[2]], c = [T[i + 6] + mo[0], T[i + 7] + mo[1], T[i + 8] + mo[2]];
+          const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+          const pv = crs(d, e2), det = dt(e1, pv); if (Math.abs(det) < 1e-12) continue;
+          const tv = [o[0] - a[0], o[1] - a[1], o[2] - a[2]], u = dt(tv, pv) / det; if (u < 0 || u > 1) continue;
+          const q = crs(tv, e1), w = dt(d, q) / det; if (w < 0 || u + w > 1) continue;
+          const s = dt(e2, q) / det; if (!(s > 1e-4 && s < bt)) continue;
+          if (zc && o[kz] + d[kz] * s > zc.v + 1e-6) continue; // partie enlevee par la coupe
+          bt = s; best = { t: { p: pi }, a, b, c };
+        }
+      }
+    });
     if (!best) return null;
     let p = [o[0] + d[0] * bt, o[1] + d[1] * bt, o[2] + d[2] * bt];
     // accroche au sommet le plus proche (12 px)
@@ -549,24 +593,28 @@ const RESERVEE_CONCEPTEUR = true;
     dimensionner(); vue("3d");
   }
   // Lecture dans un travailleur en arriere-plan (la page reste fluide) ; a defaut, directement
+  // source : texte IFC (exemple) ou fichier choisi (.ifc / .ifczip, lu et decompresse dans le worker)
   function lire(texte, nom) {
     const t0 = performance.now();
     $("#chargement").hidden = false; $("#chargementTxt").textContent = `Lecture de ${nom}…`;
     const fin = () => { $("#chargement").hidden = true; };
-    const direct = () => setTimeout(() => {
-      try { afficherModele(IFC.build(texte), nom, performance.now() - t0); } catch (err) { toast(`Impossible de lire ce fichier : ${err.message}`); }
+    const direct = () => setTimeout(async () => {
+      try { afficherModele(IFC.build(typeof texte === "string" ? texte : await IFC.texteIFC(texte)), nom, performance.now() - t0); } catch (err) { toast(`Impossible de lire ce fichier : ${err.message}`); }
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.3", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
-    w.onmessage = (e) => { w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier : ${e.data.err}`); };
+    try { w = new Worker(new URL("./worker.js?v=1.4", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    w.onmessage = (e) => {
+      if (e.data.prog != null) { $("#chargementTxt").textContent = `Lecture de ${nom}… ${Math.round(e.data.prog * 100)} %`; return; }
+      w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier : ${e.data.err}`);
+    };
     w.onerror = (e) => { e.preventDefault(); w.terminate(); direct(); };
     w.postMessage(texte);
   }
   function lireFichier(f) {
     if (!f) return;
-    if (!/\.ifc$/i.test(f.name)) { toast("Choisissez un fichier .ifc (les fichiers Revit .rvt ne s'ouvrent pas : demandez l'export IFC)."); return; }
-    const r = new FileReader(); r.onload = () => lire(String(r.result), f.name); r.onerror = () => toast("Lecture du fichier impossible."); r.readAsText(f);
+    if (!/\.(ifc|ifczip|zip)$/i.test(f.name)) { toast("Choisissez un fichier .ifc ou .ifczip (les fichiers Revit .rvt ne s'ouvrent pas : demandez l'export IFC)."); return; }
+    lire(f, f.name);
   }
   $("#ouvrir2").addEventListener("change", (e) => { lireFichier(e.target.files[0]); e.target.value = ""; });
   $("#bExemple").addEventListener("click", async () => {
