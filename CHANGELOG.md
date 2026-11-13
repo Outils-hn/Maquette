@@ -2,6 +2,11 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.13 — 13 novembre 2026
+
+- Nouveauté : bouton « Comparer ». Le fichier ouvert sert d'ancienne version, vous choisissez la nouvelle (IFC contre IFC, ou STEP contre STEP) : la vue 3D colore les éléments ajoutés (vert), supprimés (rouge), modifiés (orange) et déplacés (bleu), les pièces inchangées restent en gris clair.
+- Nouveauté : onglet « Écarts » avec la liste détaillée (ce qui a changé : nom, dimensions, matériau, propriétés, déplacement en mm), filtres par statut, fiche de chaque élément avec le détail, bouton « Inverser » pour échanger ancienne et nouvelle version.
+
 ## 1.12 — 13 novembre 2026
 
 - Nouveauté : un STEP s'exporte en DXF vue par vue (dessus, dessous, avant, arrière, gauche, droite) : arêtes visibles, arêtes cachées en tirets, trous et arrondis en vrais cercles et arcs avec leur diamètre et leurs axes, dimensions générales et entraxes en option.

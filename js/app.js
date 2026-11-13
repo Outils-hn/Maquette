@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.12";
+import IFC from "./core.js?v=1.13";
 
-const VERSION = "1.12";
+const VERSION = "1.13";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -35,7 +35,10 @@ const RESERVEE_CONCEPTEUR = true;
   // O : centre de la maquette, les positions envoyees a la carte graphique lui sont relatives (precision)
   let O = [0, 0, 0], sigPrec = null;
   const LUM = nrm([-0.45, -0.7, 0.85]);
+  // Comparaison : couleur par statut (les pieces identiques restent en gris fantome)
+  const CMP = { ajoute: { rgb: [0.16, 0.62, 0.30], a: 1, nom: "Ajouté", css: "#29a04d" }, supprime: { rgb: [0.86, 0.22, 0.22], a: 0.62, nom: "Supprimé", css: "#dc3838" }, modifie: { rgb: [0.96, 0.62, 0.10], a: 1, nom: "Modifié", css: "#f59e1a" }, deplace: { rgb: [0.22, 0.50, 0.92], a: 1, nom: "Déplacé", css: "#3880ea" }, identique: { rgb: [0.62, 0.64, 0.67], a: 0.16, nom: "Identique", css: "#9ea3aa" } };
   function couleurDe(p, m) {
+    if (p.cmp) return { rgb: CMP[p.cmp].rgb, a: CMP[p.cmp].a };
     if (m.verre) return { rgb: IFC.VERRE, a: 0.42 };
     const c = m.couleur ? m.couleur.rgb : IFC.couleurType(p.ifc);
     return { rgb: c, a: m.couleur && m.couleur.alpha < 0.99 ? m.couleur.alpha : 1 };
@@ -123,6 +126,7 @@ const RESERVEE_CONCEPTEUR = true;
   function visible(pi) {
     const p = M.produits[pi];
     if (etat.isole && !etat.isole.has(pi)) return false;
+    if (p.cmp && etat.cmp) { if (p.cmp === "identique" ? !etat.cmp.fond : !etat.cmp.vis.has(p.cmp)) return false; }
     if (etat.caches.has(p.type)) return false;
     if (p.etage != null && etat.cache.has(p.etage)) return false;
     return true;
@@ -418,6 +422,7 @@ const RESERVEE_CONCEPTEUR = true;
     const et = M.etages.find((e) => e.id === p.etage);
     const mur = p.mur != null ? M.produits.find((x) => x.id === p.mur) : null;
     let h = `<div class="tete"><span class="pastille" style="--c:${rgba((p.morceaux.find((m) => !m.verre && m.couleur) || {}).couleur?.rgb || IFC.couleurType(p.ifc), 1, 1)}"></span><div><h3>${esc(p.nom)}</h3><p>${esc(p.type)} <span class="mono">${esc(p.ifc.replace(/^IFC/, "Ifc").replace(/(Ifc)(.)(.*)/, (_m, a, b, c) => a + b + c.toLowerCase()))}</span></p></div></div>`;
+    if (p.cmp) h += `<dl class="groupe cmp-fiche"><h4>Comparaison</h4><div class="stat-cmp" style="--c:${CMP[p.cmp].css}"><i></i>${CMP[p.cmp].nom}</div>${p.cmpInfo.length ? `<ul>${p.cmpInfo.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : `<p class="note">Aucune différence (tolérance 1 mm).</p>`}</dl>`;
     h += `<dl class="groupe"><h4>Identité</h4>${ligne(M.source === "step" ? "Sous-ensemble" : "Étage", nomEtage(p.etage))}${ligne("Matériau", p.materiau)}${ligne("Description", p.desc)}${ligne("Type d'objet", p.objType)}${ligne("GlobalId", p.gid, true)}</dl>`;
     if (p.hauteur != null) h += `<dl class="groupe"><h4>${p.ifc === "IFCDOOR" ? "Porte" : "Fenêtre"} ${CTL}</h4>${ligne("Largeur", `${p.largeur.toLocaleString("fr-CH")} mm`, true)}${ligne("Hauteur", `${p.hauteur.toLocaleString("fr-CH")} mm`, true)}${et ? ligne("Allège (depuis l'étage)", `${mm(bb.min[2] - et.z)} mm`, true) : ""}${ligne("Dans le mur", mur ? mur.nom : "—")}</dl>`;
     if (p.surf) h += `<dl class="groupe"><h4>Surfaces du mur ${CTL}</h4>${ligne("Longueur", `${mm(p.surf.L)} mm`, true)}${ligne("Hauteur", `${mm(p.surf.h)} mm`, true)}${ligne("Épaisseur", `${mm(p.surf.T)} mm`, true)}${ligne("Surface brute", `${m2(p.surf.brute)} m²`, true)}${ligne("Ouvertures et découpes", `${p.surf.trous} (${m2(p.surf.brute - p.surf.nette)} m²)`, true)}${ligne("Surface nette", `${m2(p.surf.nette)} m²`, true)}</dl>`;
@@ -753,6 +758,13 @@ const RESERVEE_CONCEPTEUR = true;
       cols: ["Façade", "Murs", "Longueur (mm)", "Hauteur (mm)", "Brute (m²)", "Fenêtres", "Portes", "Ouvertures (m²)", "Nette (m²)", "Tableaux (ml)", "Linteaux (ml)", "Appuis (ml)"],
       total: (L) => { const S = (j) => +L.reduce((s2, r) => s2 + (+r[j] || 0), 0).toFixed(2); return ["Total", S(1), "", "", S(4), S(5), S(6), S(7), S(8), S(9), S(10), S(11)]; },
     },
+    ecarts: {
+      titre: "Écarts entre les deux versions", filtre: (p) => !!p.cmp && p.cmp !== "identique" && !!etat.cmp && etat.cmp.vis.has(p.cmp),
+      tri: (a, b) => ["supprime", "ajoute", "modifie", "deplace"].indexOf(a.cmp) - ["supprime", "ajoute", "modifie", "deplace"].indexOf(b.cmp),
+      cols: ["Nom", "Statut", "Type", "Étage / sous-ensemble", "Détail"],
+      ligne: (p) => [p.nom, CMP[p.cmp].nom, p.type, nomEtage(p.etage), p.cmpInfo.join(" · ")],
+      total: (L) => ["Total", `${L.length} écart${L.length > 1 ? "s" : ""}`, "", "", ""],
+    },
     tout: {
       titre: "Tous les éléments", filtre: () => true,
       get cols() { return ["Nom", "Type", M && M.source === "step" ? "Sous-ensemble" : "Étage", "Matériau", "X (mm)", "Y (mm)", "Z (mm)"]; },
@@ -761,7 +773,7 @@ const RESERVEE_CONCEPTEUR = true;
     },
   };
   const fmt = (v) => (typeof v === "number" ? v.toLocaleString("fr-CH") : v ?? "");
-  const AVERT_LISTE = { fen: "Largeurs, hauteurs, allèges et surfaces sont calculées par Maquette à partir de la géométrie, pas lues dans le fichier.", murs: "Longueurs, hauteurs, épaisseurs et surfaces (brutes et nettes) sont calculées par Maquette à partir de la géométrie.", fac: "Façades repérées automatiquement ; longueurs, surfaces, tableaux, linteaux et appuis sont calculés par Maquette.", tout: "Les dimensions sont celles de la boîte qui englobe chaque élément, calculées par Maquette." };
+  const AVERT_LISTE = { ecarts: "Écarts calculés par Maquette en comparant les deux fichiers (tolérance 1 mm). Un élément renommé ou recréé peut apparaître comme supprimé et ajouté.", fen: "Largeurs, hauteurs, allèges et surfaces sont calculées par Maquette à partir de la géométrie, pas lues dans le fichier.", murs: "Longueurs, hauteurs, épaisseurs et surfaces (brutes et nettes) sont calculées par Maquette à partir de la géométrie.", fac: "Façades repérées automatiquement ; longueurs, surfaces, tableaux, linteaux et appuis sont calculés par Maquette.", tout: "Les dimensions sont celles de la boîte qui englobe chaque élément, calculées par Maquette." };
   const avertListe = (k) => `<p class="avert-calc" id="avertListe">${avertHtml(`${AVERT_LISTE[k]} Vérifiez-les avant tout devis, commande ou plan.`)}</p>`;
   function onglet(k) {
     ongletActif = k;
@@ -781,17 +793,18 @@ const RESERVEE_CONCEPTEUR = true;
       if (F.length) $("#tables").insertAdjacentHTML("afterbegin", avertListe(k));
       return;
     }
-    M.produits.forEach((p, i) => { if (L.filtre(p)) lignes.push({ i, r: L.ligne(p) }); });
+    M.produits.forEach((p, i) => { if (L.filtre(p)) lignes.push({ i, p, r: L.ligne(p) }); });
+    if (L.tri) lignes.sort((x, y) => L.tri(x.p, y.p));
     $("#tables").innerHTML = lignes.length ? `<table><thead><tr>${L.cols.map((c) => `<th${num(c) ? ' class="n"' : ""}>${esc(c)}</th>`).join("")}</tr></thead>
       <tbody>${lignes.map(({ i, r }) => `<tr${etat.sel === i ? ' class="sel"' : ""}>${r.map((v, j) => j === 0 ? `<td><button type="button" data-pi="${i}">${esc(v)}</button></td>` : `<td${num(L.cols[j]) ? ' class="n mono"' : ""}>${esc(fmt(v))}</td>`).join("")}</tr>`).join("")}</tbody>
       <tfoot><tr>${L.total(lignes.map((x) => x.r)).map((v, j) => `<td${num(L.cols[j]) ? ' class="n mono"' : ""}>${esc(fmt(v))}</td>`).join("")}</tr></tfoot></table>`
-      : `<p class="vide">Aucun élément de ce genre dans la maquette.</p>`;
+      : `<p class="vide">${L === LISTES.ecarts ? "Aucun écart avec ces filtres." : "Aucun élément de ce genre dans la maquette."}</p>`;
     document.querySelectorAll("[data-onglet]").forEach((b) => { const L2 = LISTES[b.dataset.onglet]; b.querySelector("span").textContent = L2.lignes ? L2.lignes().length : M.produits.filter(L2.filtre).length; });
     if (lignes.length) $("#tables").insertAdjacentHTML("afterbegin", avertListe(k));
   }
   $("#bCopier").addEventListener("click", async () => {
     if (!M) return;
-    const L = LISTES[ongletActif]; const rows = L.lignes ? L.lignes().map((x) => x.r) : M.produits.filter(L.filtre).map(L.ligne);
+    const L = LISTES[ongletActif]; const rows = L.lignes ? L.lignes().map((x) => x.r) : M.produits.filter(L.filtre).sort(L.tri || (() => 0)).map(L.ligne);
     const tsv = [L.cols, ...rows, L.total(rows), [`À contrôler : chiffres calculés par Maquette à partir de la géométrie du modèle (${nomFichier}).`]].map((r) => r.map((v) => String(v ?? "").replace(/\t|\n/g, " ")).join("\t")).join("\n");
     try { await navigator.clipboard.writeText(tsv); toast(`« ${L.titre} » copié : collez dans Excel (Ctrl+V).`); }
     catch { const ta = $("#secours"); ta.hidden = false; ta.value = tsv; ta.select(); toast("Copie bloquée : le tableau est sélectionné, faites Ctrl+C."); }
@@ -799,7 +812,10 @@ const RESERVEE_CONCEPTEUR = true;
   let toastT; function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 3400); }
 
   // ---------- Ouvrir un fichier (lu localement, jamais envoye) ----------
+  let apres = null; // si renseigne : au lieu d'afficher le prochain modele lu, on le remet a cette fonction (comparaison)
   function afficherModele(m, nom, ms) {
+    if (apres) { const f = apres; apres = null; f(m, nom, ms); return; }
+    if (!m.comparaison) { etat.cmp = null; $("#zoneCmp").hidden = true; }
     if (!m.produits.length) { toast("Aucun élément 3D trouvé dans ce fichier."); return; }
     M = m; nomFichier = nom;
     Object.assign(etat, { cache: new Set(), caches: new Set(), isole: null, sel: null, coupe: null, pts: [] });
@@ -809,8 +825,10 @@ const RESERVEE_CONCEPTEUR = true;
     const LIB = { plan: ["Plan", "Vue en plan (de dessus)"], a: ["A", "Élévation Face A"], b: ["B", "Élévation Face B"], c: ["C", "Élévation Face C"], d: ["D", "Élévation Face D"] };
     const LIB_STEP = { plan: ["Dessus", "Vue de dessus"], a: ["Avant", "Vue de l'avant (depuis −Y)"], b: ["Droite", "Vue de droite (depuis +X)"], c: ["Arrière", "Vue de l'arrière (depuis +Y)"], d: ["Gauche", "Vue de gauche (depuis −X)"], dessous: ["Dessous", "Vue de dessous"] };
     document.querySelectorAll("[data-vue]").forEach((b) => { const k = b.dataset.vue; if (k === "3d") return; const l = (estStep ? LIB_STEP : LIB)[k]; b.hidden = !l; if (l) { b.textContent = l[0]; b.title = l[1]; } });
-    document.querySelectorAll('[data-onglet="fen"], [data-onglet="murs"], [data-onglet="fac"]').forEach((b) => { b.hidden = estStep; });
-    if (estStep) ongletActif = "tout"; else if (ongletActif === "tout") ongletActif = "fen";
+    document.querySelectorAll('[data-onglet="fen"], [data-onglet="murs"], [data-onglet="fac"]').forEach((b) => { b.hidden = estStep || !!m.comparaison; });
+    $('[data-onglet="ecarts"]').hidden = !m.comparaison;
+    if (m.comparaison) ongletActif = "ecarts"; else if (estStep) ongletActif = "tout"; else if (ongletActif === "tout" || ongletActif === "ecarts") ongletActif = "fen";
+    $("#bCompare").disabled = false;
     $("#bStep").title = estStep ? "Cette maquette est déjà un fichier STEP" : "Exporter des éléments en STEP pour AutoCAD ou un logiciel 3D";
     $("#accueil").hidden = true; $("#bCopier").disabled = false; $("#bStep").disabled = estStep;
     construire(); arbre(); onglet(ongletActif); afficherProps(); majOutils();
@@ -837,7 +855,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.12", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.13", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     let dernier = null, attente = false, tDernier = Date.now();
     // garde-fou : un element dont le calcul bloque plus de 30 s est ignore, et la lecture repart sans lui
     veille = setInterval(() => {
@@ -866,22 +884,50 @@ const RESERVEE_CONCEPTEUR = true;
     const fin = () => { $("#chargement").hidden = true; };
     let res;
     try {
-      const { lireStep } = await import("./step.js?v=1.12");
+      const { lireStep } = await import("./step.js?v=1.13");
       res = await lireStep(f, (t) => { $("#chargementTxt").textContent = `${nom} · ${t}…`; });
     } catch (err) { fin(); toast(`Impossible de lire ce fichier STEP : ${err.message}`); return; }
     $("#chargementTxt").textContent = `${nom} · Conversion de la géométrie…`;
     const direct = () => setTimeout(() => { try { afficherModele(IFC.depuisStep(res, { nom }), nom, performance.now() - t0); } catch (err) { toast(`Impossible de lire ce fichier STEP : ${err.message}`); } fin(); }, 30);
-    let w; try { w = new Worker(new URL("./worker.js?v=1.12", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    let w; try { w = new Worker(new URL("./worker.js?v=1.13", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     w.onmessage = (e) => { if (e.data.prog != null) return; w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier STEP : ${e.data.err}`); };
     w.onerror = (e) => { e.preventDefault(); w.terminate(); fin(); toast("Impossible de convertir ce fichier STEP (le calcul en arrière-plan a échoué)."); }; // les tableaux ont ete transferes : pas de reprise directe
     w.postMessage({ step: res, nom }, res.meshes.flatMap((m) => [m.pos.buffer, m.idx.buffer]));
   }
-  function lireFichier(f) {
+  function lireFichier(f, suite) {
     if (!f) return;
+    apres = suite || null;
     if (/\.(stp|step)$/i.test(f.name)) { lireStepFichier(f); return; }
     if (!/\.(ifc|ifczip|zip)$/i.test(f.name)) { toast("Choisissez un fichier .ifc, .ifczip ou .stp (les fichiers Revit .rvt ne s'ouvrent pas : demandez l'export IFC)."); return; }
     lire(f, f.name);
   }
+  // ---------- Comparaison de deux versions : le fichier ouvert = ancienne version, le fichier choisi = nouvelle version ----------
+  function lancerComparaison(A, nomA, B, nomB) {
+    if (!B.produits.length) { toast("Aucun élément 3D dans le fichier à comparer."); return; }
+    if ((A.source === "step") !== (B.source === "step")) { toast("Comparez deux fichiers du même type (deux IFC, ou deux STEP)."); return; }
+    const t0 = performance.now(), R = IFC.comparer(A, B), C = IFC.fusionComparaison(A, B, R);
+    etat.cmp = { A, B, nomA, nomB, R, vis: new Set(["ajoute", "supprime", "modifie", "deplace"]), fond: true };
+    afficherModele(C, `${nomA} → ${nomB}`, performance.now() - t0);
+    $("#infos").textContent = `Comparaison · ${R.cle === "gid" ? "appariement par GlobalId" : "appariement par type et nom, puis par forme"} · tolérance 1 mm`;
+    majBarreCmp();
+    const c = R.compte; toast(`${c.ajoute} ajouté${c.ajoute > 1 ? "s" : ""}, ${c.supprime} supprimé${c.supprime > 1 ? "s" : ""}, ${c.modifie} modifié${c.modifie > 1 ? "s" : ""}, ${c.deplace} déplacé${c.deplace > 1 ? "s" : ""}.`);
+  }
+  function majBarreCmp() {
+    const k = etat.cmp, z = $("#zoneCmp"); z.hidden = !k; if (!k) return;
+    $("#cmpNoms").textContent = `${k.nomA} → ${k.nomB}`; $("#cmpNoms").title = `Ancienne version : ${k.nomA}\nNouvelle version : ${k.nomB}`;
+    $("#cmpChips").innerHTML = ["supprime", "ajoute", "modifie", "deplace"].map((s2) => `<button type="button" class="chip-cmp" data-cmps="${s2}" style="--c:${CMP[s2].css}" aria-pressed="${k.vis.has(s2)}"${k.R.compte[s2] ? "" : " disabled"}><i></i>${{ ajoute: "Ajoutés", supprime: "Supprimés", modifie: "Modifiés", deplace: "Déplacés" }[s2]} <b>${k.R.compte[s2]}</b></button>`).join("");
+    $("#cmpFond").checked = k.fond;
+  }
+  $("#bCompare").addEventListener("click", () => { if (M) $("#ouvrir3").click(); });
+  $("#ouvrir3").addEventListener("change", (e) => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f || !M) return;
+    const A = etat.cmp ? etat.cmp.A : M, nomA = etat.cmp ? etat.cmp.nomA : nomFichier;
+    lireFichier(f, (B, nomB) => lancerComparaison(A, nomA, B, nomB));
+  });
+  $("#cmpChips").addEventListener("click", (e) => { const b = e.target.closest("[data-cmps]"); if (!b || !etat.cmp) return; const s2 = b.dataset.cmps; etat.cmp.vis.has(s2) ? etat.cmp.vis.delete(s2) : etat.cmp.vis.add(s2); majBarreCmp(); onglet(ongletActif); sigPrec = null; envoyer(); });
+  $("#cmpFond").addEventListener("change", (e) => { if (etat.cmp) { etat.cmp.fond = e.target.checked; sigPrec = null; envoyer(); } });
+  $("#cmpInverser").addEventListener("click", () => { const k = etat.cmp; if (k) lancerComparaison(k.B, k.nomB, k.A, k.nomA); });
+  $("#cmpQuitter").addEventListener("click", () => { const k = etat.cmp; if (!k) return; etat.cmp = null; afficherModele(k.B, k.nomB, 0); $("#infos").textContent = "Retour à la nouvelle version"; });
   $("#ouvrir2").addEventListener("change", (e) => { lireFichier(e.target.files[0]); e.target.value = ""; });
   $("#bExemple").addEventListener("click", async () => {
     try { const r = await fetch("exemples/TinyHouse.ifc"); if (!r.ok) throw new Error(r.status); lire(await r.text(), "TinyHouse.ifc (exemple)"); }
@@ -904,7 +950,7 @@ const RESERVEE_CONCEPTEUR = true;
   new MutationObserver(envoyer).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   dimensionner();
-  window.__viewer = { etat, cam, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.12")).testerBoite(cible) };
+  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.13")).testerBoite(cible) };
 
 
 // ======================= Bandeau commun de la famille =======================

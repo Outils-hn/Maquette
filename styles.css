@@ -389,3 +389,23 @@ footer a, footer button { text-decoration: none; text-underline-offset: 2px; tra
 footer a:hover, footer button:hover { color: var(--ink); text-decoration: underline; }
 /* barre d'outils 3D centree en haut de la vue */
 @media (min-width: 901px) { .outils { justify-content: center; } }
+
+/* Comparaison de deux versions */
+#zoneCmp { position: absolute; left: 64px; right: 12px; bottom: 34px; z-index: 3; display: flex; justify-content: center; pointer-events: none; }
+#zoneCmp[hidden] { display: none; }
+#barreCmp { pointer-events: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; max-width: 100%; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 4px 18px rgba(0,0,0,.12); font-size: 12.5px; }
+.cmp-noms { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.cmp-noms span { color: var(--muted); font-size: 11.5px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-cmp { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); color: var(--ink); font: 500 12px var(--sans); cursor: pointer; }
+.chip-cmp i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+.chip-cmp b { font-family: var(--mono); font-weight: 600; }
+.chip-cmp[aria-pressed="false"] { opacity: .5; background: var(--sunk); }
+.chip-cmp[aria-pressed="false"] i { background: transparent; box-shadow: inset 0 0 0 1.5px var(--c); }
+.chip-cmp:disabled { opacity: .35; cursor: default; }
+.cmp-fond { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.stat-cmp { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12.5px; }
+.stat-cmp i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
+.cmp-fiche ul { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.5; }
+@media (max-width: 760px) { #zoneCmp { left: 8px; bottom: 30px; } .cmp-noms span { max-width: 160px; } }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

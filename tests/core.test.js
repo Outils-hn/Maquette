@@ -468,3 +468,43 @@ test("Vue 2D : les six vues d'une piece ont les bonnes dimensions (X, Y, Z diffe
   assert.deepEqual(d("b"), [100, 200]); assert.deepEqual(d("d"), [100, 200]);
   assert.throws(() => IFC.projection(S, [0], "haut"), /vue inconnue/);
 });
+
+// ---------- Comparaison de deux versions (1.13) ----------
+test("Comparaison : une maquette comparee a elle-meme est entierement identique", () => {
+  const R = IFC.comparer(M, M);
+  assert.equal(R.cle, "gid"); assert.equal(R.ajoutes.length, 0); assert.equal(R.supprimes.length, 0);
+  assert.equal(R.compte.identique, M.produits.length); assert.equal(R.compte.modifie + R.compte.deplace, 0);
+});
+test("Comparaison IFC par GlobalId : ajout, suppression, deplacement, modification de dimension, de materiau et de propriete", () => {
+  const prod = M.produits, [pSup, pDep, pDim, pMat, pPro] = [prod[0], prod[1], prod[2], prod[3], prod[4]];
+  const decale = (p, d) => ({ ...p, bb: { min: p.bb.min.map((v, k) => v + d[k]), max: p.bb.max.map((v, k) => v + d[k]) } });
+  const nouveaux = prod.map((p) => p === pSup ? null : p === pDep ? decale(p, [0.5, 0, 0]) : p === pDim ? { ...p, bb: { min: p.bb.min, max: [p.bb.max[0] + 0.1, p.bb.max[1], p.bb.max[2]] } } : p === pMat ? { ...p, materiau: "Autre matériau" } : p === pPro ? { ...p, psets: [{ nom: "Pset_X", props: [{ nom: "Feu", val: "EI30" }] }] } : p).filter(Boolean);
+  nouveaux.push({ ...prod[5], gid: "NOUVEAU-GID-0000000000", nom: "Nouveau", id: 99999 });
+  const B = { ...M, produits: nouveaux };
+  const R = IFC.comparer(M, B), par = (p) => R.paires.find((x) => M.produits[x.a] === p);
+  assert.deepEqual(R.supprimes, [0]); assert.equal(R.ajoutes.length, 1); assert.equal(B.produits[R.ajoutes[0]].nom, "Nouveau");
+  assert.equal(par(pDep).statut, "deplace"); assert.ok(Math.abs(par(pDep).delta[0] - 0.5) < 1e-9); assert.match(par(pDep).details[0], /Déplacé de 500 mm/);
+  assert.equal(par(pDim).statut, "modifie"); assert.match(par(pDim).details.join("|"), /Dimensions : X .* → .* mm/);
+  assert.equal(par(pMat).statut, "modifie"); assert.match(par(pMat).details.join("|"), /Matériau : .* → Autre matériau/);
+  assert.equal(par(pPro).statut, "modifie"); assert.match(par(pPro).details.join("|"), /Propriété Pset_X\.Feu : — → EI30/);
+  assert.equal(R.compte.deplace, 1); assert.equal(R.compte.modifie >= 3, true);
+});
+test("Comparaison STEP : pieces appariees par nom, renommee reconnue par sa forme, ajout et suppression", () => {
+  const cube = (nom, a, dx = 0) => { const c = cubeOCC(a); c.nom = nom; for (let i = 0; i < c.pos.length; i += 3) c.pos[i] += dx; return c; };
+  const mk = (L) => IFC.depuisStep({ meshes: L, racine: noeud("", L.map((_, i) => i)) });
+  const A = mk([cube("Plaque", 100), cube("Equerre", 50, 300), cube("Vis", 20, 600), cube("Rondelle", 30, 900)]);
+  const B = mk([cube("Plaque", 100, 5), cube("Equerre-v2", 50, 300), cube("Vis", 25, 600), cube("Ecrou", 40, 1200)]);
+  const R = IFC.comparer(A, B), nom = (x) => `${A.produits[x.a].nom}>${B.produits[x.b].nom}`;
+  const st = Object.fromEntries(R.paires.map((x) => [nom(x), x.statut]));
+  assert.equal(st["Plaque · 1>Plaque · 1"], "deplace"); assert.equal(st["Equerre · 2>Equerre-v2 · 2"], "modifie", "renommee : le nom change");
+  assert.equal(st["Vis · 3>Vis · 3"], "modifie");
+  assert.deepEqual(R.supprimes.map((i) => A.produits[i].nom), ["Rondelle · 4"]); assert.deepEqual(R.ajoutes.map((j) => B.produits[j].nom), ["Ecrou · 4"]);
+});
+test("Comparaison : le modele fusionne garde la nouvelle version et ajoute les pieces supprimees", () => {
+  const prod = M.produits, B = { ...M, produits: prod.slice(1) };
+  const R = IFC.comparer(M, B), C = IFC.fusionComparaison(M, B, R);
+  assert.equal(C.produits.length, prod.length); assert.equal(C.produits.filter((p) => p.cmp === "supprime").length, 1);
+  assert.equal(C.produits.filter((p) => p.cmp === "identique").length, prod.length - 1);
+  const sup = C.produits.find((p) => p.cmp === "supprime"); assert.equal(sup.nom, prod[0].nom); assert.ok(new Set(C.produits.map((p) => p.id)).size === C.produits.length, "identifiants uniques");
+  assert.equal(C.comparaison.compte.supprime, 1);
+});

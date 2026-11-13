@@ -7,6 +7,7 @@ Ouvrir les maquettes IFC reçues des architectes, et les fichiers STEP (pièces 
 - Formes lues : B-rep facettés, extrusions (rectangle, cercle, polyligne), maillages IFC4 (triangulés, polygonaux), éléments répétés (mapped items) ; ouvertures découpées dans les murs droits. Les découpes booléennes complexes sont simplifiées (un bandeau le signale).
 - Fichiers STEP (`.stp`, `.step`) : lus par OpenCascade (`vendor/occt/`, version figée et vérifiée par empreinte), dans une iframe isolée sans accès au réseau (`js/step.js`) ; `core.js` convertit le résultat (`depuisStep`) : une pièce par solide, couleurs, arêtes de contour, surface et volume. Voir `vendor/occt/LISEZMOI.md`.
 - Vues 2D d'un STEP en DXF (`IFC.projection`, `core.js`) : tampon de profondeur pour les arêtes visibles/cachées, cercles et arcs reconnus, diamètres, axes, cotes ; mention « à contrôler » sur tout chiffre calculé.
+- Comparaison de deux versions (`IFC.comparer`, `IFC.fusionComparaison`, `core.js`) : appariement par GlobalId (IFC) ou par type et nom puis par forme (STEP), statuts ajouté / supprimé / modifié / déplacé (tolérance 1 mm), affichage fusionné dans la vue 3D.
 - Exemple : `exemples/TinyHouse.ifc` (bouton « Voir un exemple »).
 - Check-up navigateur : `e2e/checkup.mjs` (lancé par le workflow « Captures » sur chaque branche).
 - Publication : GitHub Pages, branche `main`, adresse `https://outils-hn.github.io/Maquette/`.
