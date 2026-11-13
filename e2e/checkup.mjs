@@ -169,6 +169,27 @@ await step("Fichier STEP (OpenCascade dans une boite sans reseau)", async () => 
   verif("STEP : fiche d'une piece (sous-ensemble, surface, volume, encombrement)", /Sous-ensemble/.test(fiche) && /Surface .* cm²/.test(fiche) && /Volume .* cm³/.test(fiche) && /X 10 500 mm/.test(fiche) && /Y 150 mm/.test(fiche), fiche.slice(0, 200));
   await page.screenshot({ path: `${OUT}/10-step.png` });
   verif("STEP : la liste porte la mention « à contrôler »", /à contrôler/i.test(await txt(page, "#avertListe")), await txt(page, "#avertListe"));
+  const dimsBB = () => page.evaluate(() => { const b = window.__viewer.M.bbTout; return b.max.map((v, k) => Math.round((v - b.min[k]) * 1000)); });
+  const d0 = await dimsBB();
+  verif("Orienter : bouton visible pour un STEP, panneau ferme", await page.locator("#bOrienter").isVisible() && await page.locator("#panOrient").isHidden());
+  await page.click("#bOrienter");
+  verif("Orienter : le panneau s'ouvre", await page.locator("#panOrient").isVisible() && await page.isDisabled("#oAnnuler"));
+  await page.click('[data-rot="x:90"]'); await page.waitForTimeout(250);
+  const d1 = await dimsBB();
+  verif("Orienter : +90° autour de X echange Y et Z", d1[0] === d0[0] && Math.abs(d1[1] - d0[2]) <= 1 && Math.abs(d1[2] - d0[1]) <= 1, `${d0} -> ${d1}`);
+  verif("Orienter : la liste suit (dimensions recalculees) et le bouton Revenir est actif", await page.isEnabled("#oAnnuler"));
+  await page.selectOption("#oAxe", "z"); await page.fill("#oDeg", "30"); await page.press("#oDeg", "Enter"); await page.waitForTimeout(250);
+  const d2 = await dimsBB(); verif("Orienter : angle libre de 30° (Entree)", d2[0] !== d1[0] && d2[2] === d1[2], `${d1} -> ${d2}`);
+  await page.press("#oDeg", "ArrowDown"); await page.press("#oDeg", "Shift+ArrowDown"); await page.waitForTimeout(250);
+  verif("Orienter : fleches ±1° et Maj ±15°", await page.evaluate(() => { const R = window.__viewer.M.rot; return Math.abs(Math.atan2(R[1][0], R[0][0]) * 180 / Math.PI - 14) < 0.01; }));
+  await page.click("#oAnnuler"); await page.waitForTimeout(250);
+  const d3 = await dimsBB(); verif("Orienter : retour a l'orientation du fichier", d3.every((v, k) => Math.abs(v - d0[k]) <= 1) && await page.isDisabled("#oAnnuler"), `${d0} / ${d3}`);
+  await page.click("#oPoser"); verif("Orienter : mode « poser sur une face » actif", (await page.getAttribute("#oPoser", "aria-pressed")) === "true" && /Cliquez maintenant/.test(await txt(page, "#oAide")));
+  const bs = await page.locator("#vue canvas, #scene canvas").first().boundingBox();
+  await page.mouse.click(bs.x + bs.width * 0.5, bs.y + bs.height * 0.5); await page.waitForTimeout(400);
+  verif("Orienter : clic sur une face la pose en dessous (rotation enregistree, mode termine)", await page.evaluate(() => window.__viewer.M.rot && window.__viewer.M.rot.some((r, i) => r.some((v, j) => v !== (i === j ? 1 : 0)))) && (await page.getAttribute("#oPoser", "aria-pressed")) === "false", await txt(page, "#toast"));
+  await page.screenshot({ path: `${OUT}/14-orienter.png` });
+  await page.click("#oAnnuler"); await page.click("#oFermer"); await page.waitForTimeout(150);
   verif("STEP : boutons de vue renommes (Dessus, Avant, Droite, Arrière, Gauche, Dessous)", (await page.locator("[data-vue]:visible").allTextContents()).join(",") === "3D,Dessus,Avant,Droite,Arrière,Gauche,Dessous", (await page.locator("[data-vue]:visible").allTextContents()).join(","));
   verif("STEP : DXF desactive en 3D, active dans une vue", await page.isDisabled("#bDxf"));
   await page.click('[data-vue="a"]'); await page.waitForTimeout(300);
@@ -211,6 +232,7 @@ await step("Fichier STEP (OpenCascade dans une boite sans reseau)", async () => 
   await page.waitForFunction(() => window.__viewer?.M?.source !== "step" && window.__viewer?.M?.produits.length === 71, null, { timeout: 30000 });
   await page.waitForTimeout(400);
   verif("IFC : la liste des fenetres porte la mention « à contrôler »", /à contrôler/i.test(await txt(page, "#avertListe")));
+  verif("IFC : pas de bouton Orienter", await page.locator("#bOrienter").isHidden());
   verif("IFC : vues A a D et Plan reprennent leurs noms, Dessous masque", (await page.locator("[data-vue]:visible").allTextContents()).join(",") === "3D,Plan,A,B,C,D");
   verif("Retour a un IFC apres un STEP : onglets, pastilles de type et export STEP reviennent", await page.locator('[data-onglet="fen"]').isVisible() && await page.locator("#filtres").isVisible() && await page.locator("#bStep").isEnabled() && (await page.locator("#arbre .etage").count()) === 4 && /Étage|Fenêtres/.test(await txt(page, ".listes-tete")));
   // 3. fichier STEP illisible : message clair, rien ne casse

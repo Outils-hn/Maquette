@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.14 — 13 novembre 2026
+
+- Nouveauté : bouton « Orienter » pour les fichiers STEP mal orientés. « Poser sur une face » : on clique la face qui doit devenir le dessous. Rotations de 90° autour de X, Y ou Z, angle précis (valeur tapée ou flèches ↑ ↓), retour à l'orientation du fichier en un clic. Les vues, coupes, cotes et DXF suivent la nouvelle orientation ; le fichier STEP n'est jamais modifié.
+
 ## 1.13 — 13 novembre 2026
 
 - Nouveauté : bouton « Comparer ». Le fichier ouvert sert d'ancienne version, vous choisissez la nouvelle (IFC contre IFC, ou STEP contre STEP) : la vue 3D colore les éléments ajoutés (vert), supprimés (rouge), modifiés (orange) et déplacés (bleu), les pièces inchangées restent en gris clair.

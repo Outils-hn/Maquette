@@ -1,7 +1,7 @@
 // Service worker de Maquette : l'appli s'ouvre aussi sans reseau (la maquette, elle, reste sur le poste).
 // En ligne : on prend toujours la version la plus recente, qu'on garde en copie. Hors ligne : on sert la copie.
 // Les echanges avec la base (Supabase) ne passent jamais par ici.
-const VERSION = "1.13";
+const VERSION = "1.14";
 const CACHE = "maquette-" + VERSION;
 const POLICES = ["fonts.googleapis.com", "fonts.gstatic.com"];
 // Lecteur STEP (7,6 Mo, version figee, empreinte verifiee par la page) : garde d'une version de l'appli a l'autre, sans retelechargement

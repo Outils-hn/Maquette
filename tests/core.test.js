@@ -508,3 +508,32 @@ test("Comparaison : le modele fusionne garde la nouvelle version et ajoute les p
   const sup = C.produits.find((p) => p.cmp === "supprime"); assert.equal(sup.nom, prod[0].nom); assert.ok(new Set(C.produits.map((p) => p.id)).size === C.produits.length, "identifiants uniques");
   assert.equal(C.comparaison.compte.supprime, 1);
 });
+
+// ---------- Orientation d'un STEP (1.14) ----------
+const dimsM = (S) => S.bbTout.max.map((v, k) => Math.round((v - S.bbTout.min[k]) * 1000));
+function etage3() { const m = cubeOCC(100); for (let i = 0; i < m.pos.length; i += 3) { m.pos[i] *= 3; m.pos[i + 2] *= 2; } return IFC.depuisStep({ meshes: [m], racine: noeud("", [0]) }); } // 300 x 100 x 200
+test("Orientation : 90 degres autour de X echange Y et Z, puis l'annulation rend l'original", () => {
+  const S = etage3(), avant = JSON.stringify(S.produits[0].bb);
+  assert.deepEqual(dimsM(S), [300, 100, 200]);
+  IFC.pivoter(S, IFC.matriceAxe("x", 90)); assert.deepEqual(dimsM(S), [300, 200, 100]);
+  IFC.pivoter(S, IFC.matriceAxe("z", 90)); assert.deepEqual(dimsM(S), [200, 300, 100]);
+  assert.equal(IFC.estIdentite(S.rot), false);
+  IFC.annulerPivot(S); assert.deepEqual(dimsM(S), [300, 100, 200]); assert.ok(IFC.estIdentite(S.rot));
+  const b = S.produits[0].bb; assert.ok(b.min.every((v, k) => Math.abs(v - JSON.parse(avant).min[k]) < 1e-6) && b.max.every((v, k) => Math.abs(v - JSON.parse(avant).max[k]) < 1e-6), "memes coordonnees qu'au depart");
+});
+test("Orientation : poser sur une face amene cette face en dessous, et la vue de dessus suit", () => {
+  const S = etage3();
+  IFC.pivoter(S, IFC.matricePoser([1, 0, 0])); // la face +X (200 x 100) devient le dessous
+  assert.deepEqual(dimsM(S), [200, 100, 300]);
+  const P = IFC.projection(S, [0], "dessus"); assert.deepEqual([Math.round(P.largeur * 1000), Math.round(P.hauteur * 1000)], [200, 100]);
+  const S2 = etage3(); IFC.pivoter(S2, IFC.matricePoser([0, 0, 1])); assert.deepEqual(dimsM(S2), [300, 100, 200]); // dessus -> dessous : retourne, memes dimensions
+  const S3 = etage3(); IFC.pivoter(S3, IFC.matricePoser([0.6, 0, 0.8])); // face inclinee : la rotation reste une vraie rotation
+  const R = S3.rot, det = R[0][0] * (R[1][1] * R[2][2] - R[1][2] * R[2][1]) - R[0][1] * (R[1][0] * R[2][2] - R[1][2] * R[2][0]) + R[0][2] * (R[1][0] * R[2][1] - R[1][1] * R[2][0]);
+  assert.ok(Math.abs(det - 1) < 1e-9); const n = [R[0][0] * 0.6 + R[0][2] * 0.8, R[1][0] * 0.6 + R[1][2] * 0.8, R[2][0] * 0.6 + R[2][2] * 0.8]; assert.ok(Math.abs(n[2] + 1) < 1e-9, "la normale pointe vers le bas");
+});
+test("Orientation : angle libre, volume et surface inchanges", () => {
+  const S = etage3(), v0 = S.produits[0].geo.volume; IFC.pivoter(S, IFC.matriceAxe("z", 30));
+  const d = dimsM(S); assert.ok(d[0] > 300 && d[1] > 100 && d[2] === 200, d.join());
+  const aire = (p) => p.morceaux.reduce((a, m) => { let s2 = 0; for (let i = 0; i < m.T.length; i += 9) { const u = [m.T[i + 3] - m.T[i], m.T[i + 4] - m.T[i + 1], m.T[i + 5] - m.T[i + 2]], w = [m.T[i + 6] - m.T[i], m.T[i + 7] - m.T[i + 1], m.T[i + 8] - m.T[i + 2]]; s2 += 0.5 * Math.hypot(u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]); } return a + s2; }, 0);
+  assert.ok(Math.abs(aire(S.produits[0]) - S.produits[0].geo.surface) < 1e-5, "surface conservee"); assert.equal(S.produits[0].geo.volume, v0);
+});

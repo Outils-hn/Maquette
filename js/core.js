@@ -1779,6 +1779,47 @@ const IFC = (() => {
     return { ...B, produits, etages, bbTout: { min: mn, max: mx }, comparaison: { compte: R.compte, cle: R.cle } };
   }
 
-  return { parse, build, depuisStep, projection, comparer, fusionComparaison, VUES2D, CALQUES_VUE, texteIFC, facades, elevation, orientation, FACES, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
+
+  // ---------- Orientation d'un modele (1.14) : rotation de toute la geometrie autour d'un pivot fixe (centre d'origine), reversible ----------
+  const snapM = (v) => (Math.abs(v) < 1e-12 ? 0 : Math.abs(v - 1) < 1e-12 ? 1 : Math.abs(v + 1) < 1e-12 ? -1 : v);
+  const ID3 = () => [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  const mulM = (A, B) => A.map((r) => [0, 1, 2].map((j) => snapM(r[0] * B[0][j] + r[1] * B[1][j] + r[2] * B[2][j])));
+  const transM = (A) => [0, 1, 2].map((i) => [A[0][i], A[1][i], A[2][i]]);
+  function matriceAxe(axe, deg) {
+    const a = (deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+    const R = axe === "x" ? [[1, 0, 0], [0, c, -s], [0, s, c]] : axe === "y" ? [[c, 0, s], [0, 1, 0], [-s, 0, c]] : [[c, -s, 0], [s, c, 0], [0, 0, 1]];
+    return R.map((r) => r.map(snapM));
+  }
+  // rotation qui amene la normale sortante n d'une face sur -Z : la face devient le dessous
+  function matricePoser(n) {
+    const l = Math.hypot(n[0], n[1], n[2]) || 1, v = [n[0] / l, n[1] / l, n[2] / l], c = -v[2];
+    if (c > 1 - 1e-12) return ID3();
+    if (c < -1 + 1e-12) return [[1, 0, 0], [0, -1, 0], [0, 0, -1]];
+    const k = [v[1] * -1 - 0, 0 * 0 - v[0] * -1, 0], sn = Math.hypot(k[0], k[1]); // v x (0,0,-1) = (-vy, vx, 0)
+    const ax = [k[0] / sn, k[1] / sn, 0], K = [[0, -ax[2], ax[1]], [ax[2], 0, -ax[0]], [-ax[1], ax[0], 0]], K2 = mulM(K, K);
+    return ID3().map((r, i) => r.map((x, j) => snapM(x + K[i][j] * sn + K2[i][j] * (1 - c))));
+  }
+  function pivoter(model, R) {
+    if (!model.pivot) model.pivot = [0, 1, 2].map((k) => (model.bbTout.min[k] + model.bbTout.max[k]) / 2);
+    if (!model.rot) model.rot = ID3();
+    const c = model.pivot, mv = (x, y, z) => [R[0][0] * x + R[0][1] * y + R[0][2] * z, R[1][0] * x + R[1][1] * y + R[1][2] * z, R[2][0] * x + R[2][1] * y + R[2][2] * z];
+    const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+    for (const p of model.produits) {
+      const bmin = [Infinity, Infinity, Infinity], bmax = [-Infinity, -Infinity, -Infinity];
+      for (const m of p.morceaux) {
+        for (const V of [m.T, m.A]) for (let i = 0; i < V.length; i += 3) { const q = mv(V[i], V[i + 1], V[i + 2]); V[i] = q[0]; V[i + 1] = q[1]; V[i + 2] = q[2]; }
+        const q = mv(m.o[0] - c[0], m.o[1] - c[1], m.o[2] - c[2]); m.o = [q[0] + c[0], q[1] + c[1], q[2] + c[2]];
+        const T = m.T; for (let i = 0; i < T.length; i += 3) for (let k = 0; k < 3; k++) { const v = T[i + k] + m.o[k]; if (v < bmin[k]) bmin[k] = v; if (v > bmax[k]) bmax[k] = v; }
+      }
+      if (bmin[0] !== Infinity) p.bb = { min: bmin, max: bmax };
+      for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], p.bb.min[k]); mx[k] = Math.max(mx[k], p.bb.max[k]); }
+    }
+    model.bbTout = { min: mn, max: mx }; model.rot = mulM(R, model.rot);
+    return model;
+  }
+  const estIdentite = (R) => !R || R.every((r, i) => r.every((v, j) => v === (i === j ? 1 : 0)));
+  const annulerPivot = (model) => (estIdentite(model.rot) ? model : pivoter(model, transM(model.rot)));
+
+  return { parse, build, depuisStep, projection, matriceAxe, matricePoser, pivoter, annulerPivot, estIdentite, comparer, fusionComparaison, VUES2D, CALQUES_VUE, texteIFC, facades, elevation, orientation, FACES, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
 })();
 export default IFC;
