@@ -38,7 +38,7 @@ const IFC = (() => {
   // Lecture paresseuse : un index (position de chaque entite dans le texte, type) ; les arguments sont
   // decodes a la demande. Un fichier de plusieurs centaines de Mo tient ainsi en memoire.
   const TYPES_RESSOURCE = /^IFC(CARTESIANPOINT|DIRECTION|AXIS2PLACEMENT|LOCALPLACEMENT|POLYLOOP|FACE|POLYLINE|SHAPEREPRESENTATION|PRODUCTDEFINITIONSHAPE|REL[A-Z]|PROPERTY|QUANTITY|ELEMENTQUANTITY|STYLEDITEM|PRESENTATION|SURFACESTYLE|COLOUR|INDEXEDPOLYGONALFACE|CARTESIANPOINTLIST|TRIANGULATEDFACESET|POLYGONALFACESET|CLOSEDSHELL|OPENSHELL|FACETEDBREP|EXTRUDEDAREASOLID|MAPPEDITEM|REPRESENTATIONMAP|CARTESIANTRANSFORMATION|VECTOR|LINE$|CIRCLE$|TRIMMEDCURVE|COMPOSITECURVE|BOOLEAN|HALFSPACE|POLYGONALBOUNDED|PLANE$|.*PROFILEDEF$|OWNERHISTORY|MATERIAL|COMPLEXPROPERTY|SIUNIT|DERIVEDUNIT|MEASUREWITHUNIT|DIMENSIONALEXPONENTS)/;
-  function parse(text) {
+  function parse(text, prog) {
     const d = text.indexOf("DATA;");
     const re = /#(\d+)\s*=\s*([A-Za-z0-9_]+)\s*\(/g;
     re.lastIndex = d < 0 ? 0 : d;
@@ -48,6 +48,7 @@ const IFC = (() => {
     while ((m = re.exec(text))) {
       const t = m[2].toUpperCase(); let c = codes.get(t); if (c === undefined) { c = noms.length; codes.set(t, c); noms.push(t); }
       ids.push(+m[1]); offs.push(re.lastIndex - 1); typs.push(c);
+      if (prog && (ids.length & 0x3ffff) === 0) prog(re.lastIndex / text.length, "Indexation");
       // fin de l'entite : le ';' hors des chaines de caracteres
       let i = re.lastIndex, q = false;
       for (; i < text.length; i++) { const ch = text.charCodeAt(i); if (ch === 39) q = !q; else if (ch === 59 && !q) break; }
@@ -190,7 +191,9 @@ const IFC = (() => {
   // Enveloppe convexe 3D (incrementale) : une ouverture devient un solide ferme et propre
   function enveloppe3D(points) {
     const vus = new Map(); for (const p of points) vus.set(p.map((v) => Math.round(v * 1e6)).join(","), p);
-    const P = [...vus.values()]; if (P.length < 4) return [];
+    let P = [...vus.values()]; if (P.length < 4) return [];
+    // ouverture tres detaillee : sa boite suffit (l'enveloppe exacte couterait trop cher)
+    if (P.length > 1500) { const b = bbox(P); P = []; for (const x of [b.min[0], b.max[0]]) for (const y of [b.min[1], b.max[1]]) for (const z of [b.min[2], b.max[2]]) P.push([x, y, z]); }
     const eps = 1e-9;
     let i0 = 0, i1 = -1, i2 = -1, i3 = -1, d = 0;
     P.forEach((p, i) => { const l = len(sub(p, P[i0])); if (l > d) { d = l; i1 = i; } });
@@ -217,10 +220,21 @@ const IFC = (() => {
     return F.map((f) => f.v.map((j) => P[j]));
   }
   const versPolys = (tris) => tris.map((t) => { const pl = plDe(t[0], t[1], t[2]); return pl ? { v: t.map((p) => p.slice()), pl } : null; }).filter(Boolean);
-  function soustraire(tris, trous) {
+  // trous : solides convexes ; ceux qui ne se touchent pas sont soustraits ensemble (une passe au lieu d'une par trou)
+  function soustraire(tris, trous, budgetMs = 4000) {
+    const t0 = Date.now();
     let A = new Noeud(versPolys(orienter(tris)));
+    const lots = [];
     for (const h of trous) {
-      const B = new Noeud(versPolys(h));
+      const b = bbox(h.flat());
+      let lot = lots.find((L) => !L.bb.some((c) => b.min[0] < c.max[0] && b.max[0] > c.min[0] && b.min[1] < c.max[1] && b.max[1] > c.min[1] && b.min[2] < c.max[2] && b.max[2] > c.min[2]));
+      if (!lot) { lot = { bb: [], tris: [] }; lots.push(lot); }
+      lot.bb.push(b); for (const t of h) lot.tris.push(t);
+    }
+    soustraire.complet = true;
+    for (const L of lots) {
+      if (Date.now() - t0 > budgetMs) { soustraire.complet = false; break; }
+      const B = new Noeud(versPolys(L.tris));
       A.inverser(); A.clipTo(B); B.clipTo(A); B.inverser(); B.clipTo(A); B.inverser(); A.build(B.tous()); A.inverser();
       A = new Noeud(A.tous());
     }
@@ -235,8 +249,10 @@ const IFC = (() => {
     for (const h0 of holes.slice().sort((a, b) => maxDe(b.map((q) => q[0])) - maxDe(a.map((q) => q[0])))) {
       let h = h0.slice(); if (area2(h) > 0) h.reverse();
       let hi = 0; h.forEach((q, i) => { if (q[0] > h[hi][0]) hi = i; });
-      const m = h[hi]; let best = -1, bd = Infinity;
-      P.forEach((q, i) => { const d = (q[0] - m[0]) ** 2 + (q[1] - m[1]) ** 2; if (d < bd && !segCrosses(m, q, P, h)) { bd = d; best = i; } });
+      const m = h[hi]; let best = -1;
+      // sommets du contour du plus proche au plus loin : le premier pont qui ne croise rien est le bon
+      const ordre = P.map((q, i) => [(q[0] - m[0]) ** 2 + (q[1] - m[1]) ** 2, i]).sort((x, y) => x[0] - y[0]);
+      for (const [, i] of ordre) if (!segCrosses(m, P[i], P, h)) { best = i; break; }
       if (best < 0) continue;
       const hr = h.slice(hi).concat(h.slice(0, hi + 1));
       P = P.slice(0, best + 1).concat(hr, [P[best]], P.slice(best + 1));
@@ -303,7 +319,7 @@ const IFC = (() => {
 
   function build(text, prog) {
     let nbProd = 0;
-    const { ents, schema } = parse(text);
+    const { ents, schema } = parse(text, prog);
     const E = (r) => (r && r.r != null ? ents.get(r.r) : null);
     const num = (v) => (v == null ? null : typeof v === "number" ? v : v.v != null ? v.v : null);
     const str = (v) => (v == null ? "" : v.s != null ? v.s : v.v && v.v.s != null ? v.v.s : v.e != null ? v.e : typeof v === "number" ? String(v) : "");
@@ -740,18 +756,20 @@ const IFC = (() => {
       const touche = (h) => { const b = bbox(h.flat()); return [0, 1, 2].every((i) => b.min[i] <= bbM.max[i] && b.max[i] >= bbM.min[i]); };
       const utiles = trous.filter(touche); if (!utiles.length) return null;
       const groupes = new Map(); for (const m of morceaux) { const kk = m.src ?? m; if (!groupes.has(kk)) groupes.set(kk, []); groupes.get(kk).push(m); }
-      const out = [];
+      const out = [], faces = [];
       try {
         for (const g of groupes.values()) {
           const tris = soustraire(g.flatMap((m) => m.tris), utiles);
+          if (!soustraire.complet) avertissements.add("Ouvertures non découpées dans certains éléments (forme complexe)");
           if (!tris.length) continue;
-          const aretes = facesPlanes(tris).flatMap((f) => f.boucles.flatMap((B) => B.map((p, i) => [p, B[(i + 1) % B.length]])));
+          const F = facesPlanes(tris); faces.push(...F);
+          const aretes = F.flatMap((f) => f.boucles.flatMap((B) => B.map((p, i) => [p, B[(i + 1) % B.length]])));
           out.push({ tris, aretes, couleur: g[0].couleur, src: g[0].src, coupes: g[0].coupes });
         }
       } catch (err) { return null; }
       if (!out.length) { return null; }
       // surface du mur : sa plus grande face (le parement), brute = longueur x hauteur
-      const F = facesPlanes(out.flatMap((m) => m.tris)); let best = null, ba = 0;
+      const F = faces; let best = null, ba = 0;
       for (const f of F) { const B = f.boucles[0]; if (B.length < 3) continue; const nw = [0, 0, 0]; B.forEach((p, i) => { const q = B[(i + 1) % B.length]; nw[0] += (p[1] - q[1]) * (p[2] + q[2]); nw[1] += (p[2] - q[2]) * (p[0] + q[0]); nw[2] += (p[0] - q[0]) * (p[1] + q[1]); }); if (Math.abs(nw[2]) > 0.2 * len(nw)) continue; let a = len(nw) / 2; for (const H of f.boucles.slice(1)) { const nh = [0, 0, 0]; H.forEach((p, i) => { const q = H[(i + 1) % H.length]; nh[0] += (p[1] - q[1]) * (p[2] + q[2]); nh[1] += (p[2] - q[2]) * (p[0] + q[0]); nh[2] += (p[0] - q[0]) * (p[1] + q[1]); }); a -= len(nh) / 2; } if (a > ba) { ba = a; best = { f, n: norm(nw) }; } }
       let surf = null;
       if (best) {
@@ -766,8 +784,10 @@ const IFC = (() => {
     // ---------- Produits ----------
     const produits = [];
     const geomOuv = new Map();
-    for (const e of ents.deType("IFCOPENINGELEMENT")) geomOuv.set(e.id, geomProduit(e));
+    let nbO = 0;
+    for (const e of ents.deType("IFCOPENINGELEMENT")) { geomOuv.set(e.id, geomProduit(e)); if (prog && ++nbO % 500 === 0) prog(0, `Ouvertures (${nbO})`); }
     for (const e of ents.candidats()) {
+      const tEl = Date.now();
       if (PAS_DESSINES.has(e.type)) continue;
       const pds = E(e.a && e.a[6]); if (!pds || pds.type !== "IFCPRODUCTDEFINITIONSHAPE") continue;
       let morceaux = geomProduit(e);
@@ -798,7 +818,9 @@ const IFC = (() => {
       morceaux = morceaux.flatMap((m) => { let x = m; for (const c of m.coupes || []) { if (x) x = couperMorceau(x, c); } return x && x.tris.length ? [x] : []; });
       if (!morceaux.length) continue;
       if (morceaux.reduce((s2, m) => s2 + m.aretes.length, 0) > 24) aretesVives(morceaux);
-      if (prog && ++nbProd % 150 === 0) prog(ents.pos / ents.size);
+      if (prog && ++nbProd % 150 === 0) prog(ents.pos / ents.size, `Éléments (${nbProd})`);
+      // element tres long a calculer : signale par son nom (aide a comprendre une lecture lente)
+      const dEl = Date.now() - tEl; if (dEl > 3000) avertissements.add(`Élément long à calculer : ${str(e.a[2]) || e.type} (${Math.round(dEl / 1000)} s)`);
       p.bb = bbox(morceaux.flatMap((m) => m.tris.flat()));
       // stockage compact (9 nombres par triangle, 6 par arete) : 5 fois moins de memoire, transfert instantane depuis le worker
       // une seule piece compacte par forme (src), couleur et vitrage : evite des milliers de petits tableaux
@@ -1144,11 +1166,27 @@ const IFC = (() => {
       const pts = new Map(), aretes = new Map();
       for (const t of T) for (const q of t) pts.set(cle3(q), q);
       const tous = [...pts.values()];
+      // grille de recherche : seuls les sommets proches de l'arete sont testes (sinon n x n sur les grandes faces)
+      let pres = () => tous;
+      if (tous.length > 64) {
+        const bb = bbox(tous), ext = Math.max(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]) || 1, sz = ext / Math.ceil(Math.sqrt(tous.length));
+        const cel = (q) => `${Math.floor((q[0] - bb.min[0]) / sz)},${Math.floor((q[1] - bb.min[1]) / sz)},${Math.floor((q[2] - bb.min[2]) / sz)}`, G = new Map();
+        for (const q of tous) { const k = cel(q); if (!G.has(k)) G.set(k, []); G.get(k).push(q); }
+        pres = (a, b) => {
+          const vus = new Set(), res = [], n = Math.max(1, Math.ceil((len(sub(b, a)) / sz) * 2));
+          for (let j = 0; j <= n; j++) {
+            const p = [a[0] + ((b[0] - a[0]) * j) / n, a[1] + ((b[1] - a[1]) * j) / n, a[2] + ((b[2] - a[2]) * j) / n];
+            const c0 = [0, 1, 2].map((k) => Math.floor((p[k] - bb.min[k]) / sz));
+            for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) { const k = `${c0[0] + dx},${c0[1] + dy},${c0[2] + dz}`; if (vus.has(k)) continue; vus.add(k); const L = G.get(k); if (L) for (const q of L) res.push(q); }
+          }
+          return res;
+        };
+      }
       for (const t of T) for (let i = 0; i < 3; i++) {
         // une arete est coupee aux sommets voisins poses dessus (jonctions en T des murs perces)
         const a = t[i], b = t[(i + 1) % 3], ab = sub(b, a), L2 = dot(ab, ab);
         const coupes = [0, 1];
-        for (const q of tous) { const aq = sub(q, a), k = dot(aq, ab) / L2; if (k > 1e-6 && k < 1 - 1e-6 && len(cross(aq, ab)) / Math.sqrt(L2) < 1e-6) coupes.push(k); }
+        for (const q of pres(a, b)) { const aq = sub(q, a), k = dot(aq, ab) / L2; if (k > 1e-6 && k < 1 - 1e-6 && len(cross(aq, ab)) / Math.sqrt(L2) < 1e-6) coupes.push(k); }
         coupes.sort((x, y) => x - y);
         for (let j = 0; j < coupes.length - 1; j++) {
           const p0 = [0, 1, 2].map((c) => a[c] + ab[c] * coupes[j]), p1 = [0, 1, 2].map((c) => a[c] + ab[c] * coupes[j + 1]);
