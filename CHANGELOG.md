@@ -2,6 +2,12 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.3 — 13 novembre 2026
+
+- Nouveauté : les vraies maquettes Revit et ArchiCAD s'ouvrent correctement (bonne échelle, ouvertures découpées dans tous les murs, profils arrondis et profilés acier, murs coupés sous les toitures), plus vite et avec des messages clairs.
+- Signature : « Conçu par Hugo N. · Imaginé par Virgile G. ».
+- Corrigé : certains fichiers Revit s'affichaient 1000 fois trop grands (deux unités déclarées), et un fichier pouvait faire planter la lecture.
+
 ## 1.2 — 13 novembre 2026
 
 - Nouveauté : l'export STEP donne de vrais solides 3D (murs avec leurs ouvertures, menuiseries…) au lieu d'un maillage dans AutoCAD.
