@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.14";
+import IFC from "./core.js?v=1.15";
 
-const VERSION = "1.14";
+const VERSION = "1.15";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -211,10 +211,10 @@ const RESERVEE_CONCEPTEUR = true;
     if (!M) return;
     const R = repere();
     // plage de profondeur d'apres la taille de la maquette
-    const bb = M.bbTout, c = bb.min.map((v, i) => (v + bb.max[i]) / 2), rad = Math.hypot(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]) / 2 + 1;
+    const bb = M.bbTout, c = bb.min.map((v, i) => (v + bb.max[i]) / 2), rad0 = Math.hypot(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]) / 2, rad = rad0 + Math.max(1e-4, Math.min(1, rad0 * 0.05));
     const dc = dt([c[0] - R.e[0], c[1] - R.e[1], c[2] - R.e[2]], R.f);
     let zn = dc - rad * 1.5, zf = dc + rad * 1.5;
-    if (!cam.ortho) zn = Math.max(0.05, zn, zf / 2000);
+    if (!cam.ortho) zn = Math.max(Math.min(0.05, rad0 * 1e-3), zn, zf / 2000);
     gl.uniform3fv(uni.eye, [R.e[0] - O[0], R.e[1] - O[1], R.e[2] - O[2]]); gl.uniform3fv(uni.ar, R.r); gl.uniform3fv(uni.au, R.u); gl.uniform3fv(uni.af, R.f);
     gl.uniform1f(uni.ortho, cam.ortho ? 1 : 0);
     gl.uniform4f(uni.proj, cam.ortho ? cam.ech * 2 / W : 2 * R.F / W, cam.ortho ? cam.ech * 2 / H : 2 * R.F / H, zn, cam.ortho ? zf - zn : zf);
@@ -321,7 +321,7 @@ const RESERVEE_CONCEPTEUR = true;
   }
   function cadrer(bb = boiteVisible()) {
     cam.cible = bb.min.map((v, i) => (v + bb.max[i]) / 2);
-    const R = Math.max(0.5, Math.hypot(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]) / 2);
+    const R = Math.max(1e-3, Math.hypot(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]) / 2); // pas de plancher a 0,5 m : une petite piece STEP remplit l'ecran
     cam.dist = R / Math.sin(cam.fov / 2) * 1.05;
     cam.ech = Math.min(W, H) / (2 * R * 1.08);
     redessiner();
@@ -373,7 +373,9 @@ const RESERVEE_CONCEPTEUR = true;
   cv.addEventListener("dblclick", () => { if (etat.sel != null) cadrerSur(etat.sel); });
   function zoom(f, px, py) {
     const avant = rayon(px, py);
-    if (cam.ortho) cam.ech = Math.max(2, Math.min(5000, cam.ech / f)); else cam.dist = Math.max(0.3, Math.min(500, cam.dist * f));
+    // limites de zoom relatives a la taille du modele : on peut s'approcher jusqu'a ~0,3 % de sa taille, d'une piece de quelques mm a un batiment
+    const S = M ? Math.max(1e-3, Math.hypot(M.bbTout.max[0] - M.bbTout.min[0], M.bbTout.max[1] - M.bbTout.min[1], M.bbTout.max[2] - M.bbTout.min[2]) / 2) : 1;
+    if (cam.ortho) cam.ech = Math.max(2, Math.min(Math.max(5000, Math.min(W, H) / (0.006 * S)), cam.ech / f)); else cam.dist = Math.max(Math.min(0.3, 0.003 * S), Math.min(Math.max(500, 50 * S), cam.dist * f));
     // garde le point sous le curseur a peu pres en place (vue a plat)
     if (cam.ortho) { const apres = rayon(px, py); for (let i = 0; i < 3; i++) cam.cible[i] += avant.o[i] - apres.o[i]; }
     redessiner();
@@ -533,7 +535,7 @@ const RESERVEE_CONCEPTEUR = true;
   // Le bouton DXF exporte la coupe en cours, ou l'elevation de la face affichee (A a D)
   const NOMS2D = { plan: "Dessus", dessous: "Dessous", a: "Avant", b: "Droite", c: "Arrière", d: "Gauche" };
   const CLE2D = { plan: "dessus", dessous: "dessous", a: "a", b: "b", c: "c", d: "d" };
-  const baseNom = () => nomFichier.replace(/\.(ifc\w*|stp|step)$/i, "");
+  const baseNom = () => nomFichier.replace(/\.(ifc\w*|stp|step)( \(exemple\))?$/i, "");
   function majDxf() {
     const b = $("#bDxf"), st = !!M && M.source === "step", v2 = st && etat.vue2d && NOMS2D[etat.vue2d];
     b.disabled = !M || !(etat.coupe || (st ? v2 : etat.face));
@@ -545,21 +547,28 @@ const RESERVEE_CONCEPTEUR = true;
   let FAC = null; const facs = () => FAC || (FAC = IFC.facades(M, ANGLE));
   function ouvrirDxf(face) {
     dxfFace = face;
-    const v2 = face === "2d", nom2d = v2 ? NOMS2D[etat.vue2d] : "";
-    $("#dxf-titre").textContent = v2 ? `Vue ${nom2d.toLowerCase()} en DXF` : face ? `Élévation DXF : ${IFC.FACES[face].nom}` : "Coupe DXF pour AutoCAD";
-    $("#dxfExpl").textContent = v2 ? "Le contour de chaque pièce vu dans cette direction, en millimètres à l'échelle 1:1 : arêtes visibles en trait plein, arêtes cachées en tirets, trous avec leur diamètre et leurs axes, dimensions générales. Pour un DWG : ouvrir le DXF dans AutoCAD puis « Enregistrer sous »."
+    const v2 = face === "2d", rel = face === "releve", nom2d = v2 ? NOMS2D[etat.vue2d] : "";
+    $("#dxf-titre").textContent = rel ? "Relevé gros-œuvre en DXF" : v2 ? `Vue ${nom2d.toLowerCase()} en DXF` : face ? `Élévation DXF : ${IFC.FACES[face].nom}` : "Coupe DXF pour AutoCAD";
+    $("#dxfExpl").textContent = rel ? "Un plan par niveau (murs, poteaux et escaliers coupés à 1 m au-dessus de la dalle, contour des dalles), les axes déduits avec leurs cotes, et le schéma des niveaux, en millimètres à l'échelle 1:1, rangés par calque (GO-MUR, GO-DALLE, GO-AXES…). À ouvrir dans AutoCAD comme fond de plan." : v2 ? "Le contour de chaque pièce vu dans cette direction, en millimètres à l'échelle 1:1 : arêtes visibles en trait plein, arêtes cachées en tirets, trous avec leur diamètre et leurs axes, dimensions générales. Pour un DWG : ouvrir le DXF dans AutoCAD puis « Enregistrer sous »."
       : face ? "Les murs extérieurs de cette face et leurs fenêtres et portes, vus de l'extérieur, en millimètres à l'échelle 1:1. Cotes des ouvertures par étage, dimensions de chaque ouverture, allèges et niveaux." : "Les traits coupés de chaque élément, en millimètres à l'échelle 1:1, rangés par calque (IFC-MUR, IFC-FENETRE…). Pour un DWG : ouvrir le DXF dans AutoCAD puis « Enregistrer sous ».";
-    $("#lVus").hidden = !!face; $("#lCotes").hidden = !face || v2;
+    $("#lVus").hidden = !!face; $("#lCotes").hidden = !face || v2 || rel;
     for (const id of ["#lCaches", "#lGen", "#lTrous", "#lEntr"]) $(id).hidden = !v2;
+    for (const id of ["#lAxes", "#lGoCotes", "#lNiv"]) $(id).hidden = !rel;
     dD.showModal();
-    if (v2) { $("#dInfo").textContent = "Calcul de la vue…"; $("#dTelecharger").disabled = $("#dCopier").disabled = true; setTimeout(preparerDxf, 40); } else preparerDxf();
+    if (v2 || rel) { $("#dInfo").textContent = "Calcul de la vue…"; $("#dTelecharger").disabled = $("#dCopier").disabled = true; setTimeout(preparerDxf, 40); } else preparerDxf();
   }
-  const relancerDxf = () => { if (dxfFace === "2d") { $("#dInfo").textContent = "Calcul de la vue…"; setTimeout(preparerDxf, 40); } else preparerDxf(); };
+  const relancerDxf = () => { if (dxfFace === "2d" || dxfFace === "releve") { $("#dInfo").textContent = "Calcul de la vue…"; setTimeout(preparerDxf, 40); } else preparerDxf(); };
   function preparerDxf() {
     const c = etat.coupe; if (!dxfFace && !c) return;
     const base = baseNom();
     let segs, textes = [], cercles = [], arcs = [], opt = {}, pref = "IFC", avert = "";
-    if (dxfFace === "2d") {
+    if (dxfFace === "releve") {
+      const Rv = IFC.releve(M, { axes: $("#dAxes").checked, cotes: $("#dGoCotes").checked, niveaux: $("#dNiv").checked });
+      segs = Rv.segs; textes = Rv.textes; cercles = Rv.cercles; pref = "GO";
+      avert = [...Rv.avertissements, "Cotes, hauteurs d'étage et épaisseurs de dalle sont calculées par Maquette à partir de la géométrie : comparez-les avec les plans de l'architecte avant de les utiliser (la mention figure aussi dans le fichier DXF)."].join(" ");
+      dxfTexte = IFC.dxf(segs, `${nomFichier} - RELEVE GROS-OEUVRE - AXES ET COTES CALCULES PAR MAQUETTE : A CONTROLER`, textes, { prefixe: "GO", calques: IFC.CALQUES_RELEVE, cercles });
+      dxfNom = `${base}-releve-gros-oeuvre.dxf`;
+    } else if (dxfFace === "2d") {
       const P = IFC.projection(M, M.produits.map((_, i) => i).filter(visible), CLE2D[etat.vue2d], { caches: $("#dCaches").checked, cotes: $("#dGen").checked, trous: $("#dTrous").checked, entraxes: $("#dEntr").checked });
       segs = P.segs; textes = P.textes; cercles = P.cercles; arcs = P.arcs; pref = "STEP";
       const calc = $("#dGen").checked || $("#dTrous").checked || $("#dEntr").checked;
@@ -584,22 +593,23 @@ const RESERVEE_CONCEPTEUR = true;
     for (const s2 of segs) for (const q of [s2.a, s2.b]) { mn = [Math.min(mn[0], q[0]), Math.min(mn[1], q[1])]; mx = [Math.max(mx[0], q[0]), Math.max(mx[1], q[1])]; }
     for (const c2 of cercles) { mn = [Math.min(mn[0], c2.c[0] - c2.r), Math.min(mn[1], c2.c[1] - c2.r)]; mx = [Math.max(mx[0], c2.c[0] + c2.r), Math.max(mx[1], c2.c[1] + c2.r)]; }
     const svg = $("#apercu"), zAv = $("#dAvert"); zAv.hidden = !avert; zAv.innerHTML = avert ? avertHtml(esc(avert)) : "";
-    if (!segs.length && !cercles.length) { svg.innerHTML = ""; $("#dInfo").textContent = dxfFace === "2d" ? "Rien à dessiner dans cette vue : aucune pièce visible." : dxfFace ? "Aucun mur extérieur trouvé sur cette face." : "Rien n'est coupé à cet endroit : déplacez le curseur de coupe."; $("#dTelecharger").disabled = $("#dCopier").disabled = true; return; }
-    const m = dxfFace === "2d" ? 0.06 * Math.max(mx[0] - mn[0], mx[1] - mn[1]) : 0.2, w = mx[0] - mn[0] + 2 * m, h = mx[1] - mn[1] + 2 * m;
+    if (!segs.length && !cercles.length) { svg.innerHTML = ""; $("#dInfo").textContent = dxfFace === "releve" ? "Rien à relever : aucun mur, poteau, dalle ni escalier." : dxfFace === "2d" ? "Rien à dessiner dans cette vue : aucune pièce visible." : dxfFace ? "Aucun mur extérieur trouvé sur cette face." : "Rien n'est coupé à cet endroit : déplacez le curseur de coupe."; $("#dTelecharger").disabled = $("#dCopier").disabled = true; return; }
+    const m = dxfFace === "2d" || dxfFace === "releve" ? 0.03 * Math.max(mx[0] - mn[0], mx[1] - mn[1]) : 0.2, w = mx[0] - mn[0] + 2 * m, h = mx[1] - mn[1] + 2 * m;
     svg.setAttribute("viewBox", `${mn[0] - m} ${-mx[1] - m} ${w} ${h}`);
     const pt = (d, c2) => [c2.c[0] + c2.r * Math.cos((d * Math.PI) / 180), -(c2.c[1] + c2.r * Math.sin((d * Math.PI) / 180))];
     svg.innerHTML = [...segs.filter((s2) => s2.calque === "CACHE"), ...segs.filter((s2) => s2.calque !== "CACHE")].map((s2) => `<line class="c-${s2.calque}" x1="${s2.a[0]}" y1="${-s2.a[1]}" x2="${s2.b[0]}" y2="${-s2.b[1]}"/>`).join("")
       + cercles.map((c2) => `<circle class="c-${c2.calque}" cx="${c2.c[0]}" cy="${-c2.c[1]}" r="${c2.r}"/>`).join("")
       + arcs.map((c2) => { const [x0, y0] = pt(c2.a0, c2), [x1, y1] = pt(c2.a1, c2), span = (((c2.a1 - c2.a0) % 360) + 360) % 360; return `<path class="c-${c2.calque}" d="M${x0} ${y0} A${c2.r} ${c2.r} 0 ${span > 180 ? 1 : 0} 0 ${x1} ${y1}"/>`; }).join("")
-      + textes.map((t) => `<text class="t-${t.calque}" x="${t.p[0]}" y="${-t.p[1]}" font-size="${t.h / 1000}" text-anchor="middle"${t.rot ? ` transform="rotate(${-t.rot} ${t.p[0]} ${-t.p[1]})"` : ""}>${esc(t.txt)}</text>`).join("");
+      + textes.map((t) => `<text class="t-${t.calque}" x="${t.p[0]}" y="${-t.p[1]}" font-size="${t.h / 1000}" text-anchor="${t.centre === false ? "start" : "middle"}"${t.rot ? ` transform="rotate(${-t.rot} ${t.p[0]} ${-t.p[1]})"` : ""}>${esc(t.txt)}</text>`).join("");
     const nb = (c2) => segs.filter((s2) => s2.calque === c2).length + cercles.filter((x) => x.calque === c2).length + arcs.filter((x) => x.calque === c2).length;
     const calques = [...new Set([...segs, ...cercles, ...arcs].map((s2) => s2.calque))];
     $("#legende").innerHTML = calques.map((c2) => `<span><i class="c-${c2}"></i>${pref}-${c2} <b class="mono">${nb(c2)}</b></span>`).join("");
     $("#dInfo").textContent = `${segs.length + cercles.length + arcs.length} traits · ${mm(mx[0] - mn[0])} × ${mm(mx[1] - mn[1])} mm · unités : mm, échelle 1:1 · ${dxfNom}`;
     $("#dTelecharger").disabled = $("#dCopier").disabled = false;
   }
+  $("#bReleve").addEventListener("click", () => { if (M && M.source !== "step") ouvrirDxf("releve"); });
   $("#bDxf").addEventListener("click", () => ouvrirDxf(etat.coupe ? null : M.source === "step" ? "2d" : etat.face));
-  for (const id of ["#dVus", "#dCotes", "#dCaches", "#dGen", "#dTrous", "#dEntr"]) $(id).addEventListener("change", relancerDxf);
+  for (const id of ["#dVus", "#dCotes", "#dCaches", "#dGen", "#dTrous", "#dEntr", "#dAxes", "#dGoCotes", "#dNiv"]) $(id).addEventListener("change", relancerDxf);
   $("#dFermer").addEventListener("click", () => dD.close());
   // ---------- Export STEP ----------
   const dS = $("#dStep");
@@ -832,7 +842,7 @@ const RESERVEE_CONCEPTEUR = true;
     document.querySelectorAll('[data-onglet="fen"], [data-onglet="murs"], [data-onglet="fac"]').forEach((b) => { b.hidden = estStep || !!m.comparaison; });
     $('[data-onglet="ecarts"]').hidden = !m.comparaison;
     if (m.comparaison) ongletActif = "ecarts"; else if (estStep) ongletActif = "tout"; else if (ongletActif === "tout" || ongletActif === "ecarts") ongletActif = "fen";
-    $("#bCompare").disabled = false;
+    $("#bCompare").disabled = false; $("#bReleve").hidden = estStep || !!m.comparaison; $("#bReleve").disabled = false;
     $("#bOrienter").hidden = !estStep || !!m.comparaison; $("#panOrient").hidden = true; $("#bOrienter").setAttribute("aria-expanded", "false"); majOrient();
     $("#bStep").title = estStep ? "Cette maquette est déjà un fichier STEP" : "Exporter des éléments en STEP pour AutoCAD ou un logiciel 3D";
     $("#accueil").hidden = true; $("#bCopier").disabled = false; $("#bStep").disabled = estStep;
@@ -860,7 +870,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.14", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.15", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     let dernier = null, attente = false, tDernier = Date.now();
     // garde-fou : un element dont le calcul bloque plus de 30 s est ignore, et la lecture repart sans lui
     veille = setInterval(() => {
@@ -889,12 +899,12 @@ const RESERVEE_CONCEPTEUR = true;
     const fin = () => { $("#chargement").hidden = true; };
     let res;
     try {
-      const { lireStep } = await import("./step.js?v=1.14");
+      const { lireStep } = await import("./step.js?v=1.15");
       res = await lireStep(f, (t) => { $("#chargementTxt").textContent = `${nom} · ${t}…`; });
     } catch (err) { fin(); toast(`Impossible de lire ce fichier STEP : ${err.message}`); return; }
     $("#chargementTxt").textContent = `${nom} · Conversion de la géométrie…`;
     const direct = () => setTimeout(() => { try { afficherModele(IFC.depuisStep(res, { nom }), nom, performance.now() - t0); } catch (err) { toast(`Impossible de lire ce fichier STEP : ${err.message}`); } fin(); }, 30);
-    let w; try { w = new Worker(new URL("./worker.js?v=1.14", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    let w; try { w = new Worker(new URL("./worker.js?v=1.15", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     w.onmessage = (e) => { if (e.data.prog != null) return; w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier STEP : ${e.data.err}`); };
     w.onerror = (e) => { e.preventDefault(); w.terminate(); fin(); toast("Impossible de convertir ce fichier STEP (le calcul en arrière-plan a échoué)."); }; // les tableaux ont ete transferes : pas de reprise directe
     w.postMessage({ step: res, nom }, res.meshes.flatMap((m) => [m.pos.buffer, m.idx.buffer]));
@@ -927,14 +937,6 @@ const RESERVEE_CONCEPTEUR = true;
   $("#oFermer").addEventListener("click", () => panneauOrient(false));
   $("#oPoser").addEventListener("click", () => basculerPoser());
   $("#panOrient").addEventListener("click", (e) => { const b = e.target.closest("[data-rot]"); if (!b) return; const [axe, deg] = b.dataset.rot.split(":"); appliquerOrientation(IFC.matriceAxe(axe, +deg)); });
-  const degSaisis = () => parseFloat($("#oDeg").value.replace(/[\s'’]/g, "").replace(",", "."));
-  function appliquerAngle() { const d = degSaisis(); if (!isFinite(d)) { toast("Tapez un angle en degrés (par exemple 15 ou −7,5)."); return; } appliquerOrientation(IFC.matriceAxe($("#oAxe").value, d)); }
-  $("#oAppl").addEventListener("click", appliquerAngle);
-  $("#oDeg").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); appliquerAngle(); }
-    else if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); appliquerOrientation(IFC.matriceAxe($("#oAxe").value, (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 15 : e.altKey ? 0.1 : 1))); }
-    else if (e.key === "Escape") { panneauOrient(false); }
-  });
   $("#oAnnuler").addEventListener("click", () => { if (!M) return; IFC.annulerPivot(M); if (etat.coupe) poserCoupe(null); FAC = null; indexRech = null; construire(); onglet(ongletActif); afficherProps(); cadrer(); majOrient(); toast("Orientation d'origine rétablie."); });
   // ---------- Comparaison de deux versions : le fichier ouvert = ancienne version, le fichier choisi = nouvelle version ----------
   function lancerComparaison(A, nomA, B, nomB) {
@@ -985,7 +987,7 @@ const RESERVEE_CONCEPTEUR = true;
   new MutationObserver(envoyer).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   dimensionner();
-  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.14")).testerBoite(cible) };
+  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.15")).testerBoite(cible) };
 
 
 // ======================= Bandeau commun de la famille =======================

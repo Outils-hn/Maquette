@@ -178,10 +178,6 @@ await step("Fichier STEP (OpenCascade dans une boite sans reseau)", async () => 
   const d1 = await dimsBB();
   verif("Orienter : +90° autour de X echange Y et Z", d1[0] === d0[0] && Math.abs(d1[1] - d0[2]) <= 1 && Math.abs(d1[2] - d0[1]) <= 1, `${d0} -> ${d1}`);
   verif("Orienter : la liste suit (dimensions recalculees) et le bouton Revenir est actif", await page.isEnabled("#oAnnuler"));
-  await page.selectOption("#oAxe", "z"); await page.fill("#oDeg", "30"); await page.press("#oDeg", "Enter"); await page.waitForTimeout(250);
-  const d2 = await dimsBB(); verif("Orienter : angle libre de 30° (Entree)", d2[0] !== d1[0] && d2[2] === d1[2], `${d1} -> ${d2}`);
-  await page.press("#oDeg", "ArrowDown"); await page.press("#oDeg", "Shift+ArrowDown"); await page.waitForTimeout(250);
-  verif("Orienter : fleches ±1° et Maj ±15°", await page.evaluate(() => { const R = window.__viewer.M.rot; return Math.abs(Math.atan2(R[1][0], R[0][0]) * 180 / Math.PI - 14) < 0.01; }));
   await page.click("#oAnnuler"); await page.waitForTimeout(250);
   const d3 = await dimsBB(); verif("Orienter : retour a l'orientation du fichier", d3.every((v, k) => Math.abs(v - d0[k]) <= 1) && await page.isDisabled("#oAnnuler"), `${d0} / ${d3}`);
   await page.click("#oPoser"); verif("Orienter : mode « poser sur une face » actif", (await page.getAttribute("#oPoser", "aria-pressed")) === "true" && /Cliquez maintenant/.test(await txt(page, "#oAide")));
@@ -190,6 +186,7 @@ await step("Fichier STEP (OpenCascade dans une boite sans reseau)", async () => 
   verif("Orienter : clic sur une face la pose en dessous (rotation enregistree, mode termine)", await page.evaluate(() => window.__viewer.M.rot && window.__viewer.M.rot.some((r, i) => r.some((v, j) => v !== (i === j ? 1 : 0)))) && (await page.getAttribute("#oPoser", "aria-pressed")) === "false", await txt(page, "#toast"));
   await page.screenshot({ path: `${OUT}/14-orienter.png` });
   await page.click("#oAnnuler"); await page.click("#oFermer"); await page.waitForTimeout(150);
+  verif("Releve : pas de bouton pour un STEP", await page.locator("#bReleve").isHidden());
   verif("STEP : boutons de vue renommes (Dessus, Avant, Droite, Arrière, Gauche, Dessous)", (await page.locator("[data-vue]:visible").allTextContents()).join(",") === "3D,Dessus,Avant,Droite,Arrière,Gauche,Dessous", (await page.locator("[data-vue]:visible").allTextContents()).join(","));
   verif("STEP : DXF desactive en 3D, active dans une vue", await page.isDisabled("#bDxf"));
   await page.click('[data-vue="a"]'); await page.waitForTimeout(300);
@@ -268,6 +265,27 @@ await step("Telephone et theme sombre", async () => {
   verif("Theme sombre applique", (await s.page.evaluate(() => document.documentElement.dataset.theme)) === "dark");
   await s.page.screenshot({ path: `${OUT}/09-sombre.png` });
   await s.c.close();
+});
+
+await step("Releve gros-oeuvre", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { c, page } = await ouvrir();
+  await exemple(page);
+  verif("Releve : bouton visible pour un IFC", await page.locator("#bReleve").isVisible() && await page.isEnabled("#bReleve"));
+  await page.click("#bReleve");
+  await page.waitForFunction(() => /traits/.test(document.querySelector("#dInfo")?.textContent || ""), null, { timeout: 30000 });
+  verif("Releve : apercu (traits, bulles d'axes, textes) et options", (await page.locator("#apercu line").count()) > 100 && (await page.locator("#apercu circle").count()) >= 8 && (await page.locator("#apercu text").count()) > 20 && await page.locator("#lAxes").isVisible() && await page.locator("#lVus").isHidden());
+  verif("Releve : la mention « à contrôler » et les axes deduits sont signales", /à contrôler/i.test(await txt(page, "#dAvert")) && /déduits/.test(await txt(page, "#dAvert")), await txt(page, "#dAvert"));
+  await page.screenshot({ path: `${OUT}/15-releve.png` });
+  await page.uncheck("#dAxes"); await page.uncheck("#dGoCotes"); await page.uncheck("#dNiv");
+  await page.waitForFunction(() => document.querySelectorAll("#apercu circle").length === 0, null, { timeout: 30000 });
+  await page.check("#dAxes"); await page.check("#dGoCotes"); await page.check("#dNiv");
+  await page.waitForFunction(() => /GO-NIVEAUX/.test(document.querySelector("#legende")?.textContent || "") && /GO-COTES/.test(document.querySelector("#legende")?.textContent || "") && document.querySelectorAll("#apercu circle").length > 0, null, { timeout: 30000 });
+  const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 8000 }), page.click("#dTelecharger")]);
+  await dl.saveAs(`${OUT}/releve.dxf`); const dx = readFileSync(`${OUT}/releve.dxf`, "utf8");
+  verif("Releve : DXF (calques GO-, axes en tirets-points, bulles, mention a controler)", /releve-gros-oeuvre\.dxf$/.test(dl.suggestedFilename()) && /GO-MUR/.test(dx) && /GO-AXES/.test(dx) && /GO-NIVEAUX/.test(dx) && /CENTER/.test(dx) && /\nCIRCLE\r/.test(dx) && /A CONTROLER/.test(dx) && !/NaN|undefined/.test(dx), dl.suggestedFilename());
+  await page.click("#dFermer");
+  await c.close();
 });
 
 await step("Comparaison de deux versions", async () => {

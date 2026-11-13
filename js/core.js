@@ -1820,6 +1820,87 @@ const IFC = (() => {
   const estIdentite = (R) => !R || R.every((r, i) => r.every((v, j) => v === (i === j ? 1 : 0)));
   const annulerPivot = (model) => (estIdentite(model.rot) ? model : pivoter(model, transM(model.rot)));
 
-  return { parse, build, depuisStep, projection, matriceAxe, matricePoser, pivoter, annulerPivot, estIdentite, comparer, fusionComparaison, VUES2D, CALQUES_VUE, texteIFC, facades, elevation, orientation, FACES, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
+
+  // ---------- Releve gros-oeuvre / facade (1.15) ----------
+  // Un plan par niveau (coupe des murs, poteaux et escaliers a 1 m au-dessus du dessus de dalle, contour des dalles),
+  // les axes deduits des murs et des poteaux avec leurs cotes, et un schema des niveaux (hauteurs d'etage, epaisseur de dalle).
+  // Tout est tourne dans le repere du batiment (orientation principale) : les plans sortent droits.
+  const CALQUES_RELEVE = { MUR: { couleur: 7, ltype: "CONTINUOUS" }, POTEAU: { couleur: 6, ltype: "CONTINUOUS" }, DALLE: { couleur: 8, ltype: "CONTINUOUS" }, ESCALIER: { couleur: 5, ltype: "CONTINUOUS" }, AXES: { couleur: 1, ltype: "CENTER" }, COTES: { couleur: 3, ltype: "CONTINUOUS" }, NIVEAUX: { couleur: 4, ltype: "CONTINUOUS" }, TEXTE: { couleur: 2, ltype: "CONTINUOUS" } };
+  function releve(model, opts = {}) {
+    const o = { axes: true, cotes: true, niveaux: true, hCoupe: 1.0, ...opts };
+    const th = orientation(model), cs = Math.cos(th), sn = Math.sin(th), Rr = (q) => [q[0] * cs + q[1] * sn, -q[0] * sn + q[1] * cs];
+    const avert = [], mmT = (x) => String(Math.round(x * 1000)), zT = (z) => (z < -5e-4 ? "−" : z > 5e-4 ? "+" : "±") + Math.abs(z).toFixed(3).replace(".", ",");
+    const calqueDeType = (p) => (estMur(p) ? "MUR" : /^IFCCOLUMN/.test(p.ifc) ? "POTEAU" : /^IFCSLAB/.test(p.ifc) ? "DALLE" : /^IFCSTAIR/.test(p.ifc) ? "ESCALIER" : null);
+    const bbR = (p) => { let a = [Infinity, Infinity], b = [-Infinity, -Infinity]; for (const x of [p.bb.min[0], p.bb.max[0]]) for (const y of [p.bb.min[1], p.bb.max[1]]) { const q = Rr([x, y]); a = [Math.min(a[0], q[0]), Math.min(a[1], q[1])]; b = [Math.max(b[0], q[0]), Math.max(b[1], q[1])]; } return { min: a, max: b }; };
+    // niveaux utiles : ceux qui contiennent au moins un mur, poteau, dalle ou escalier
+    let etages = model.etages.filter((e) => model.produits.some((p) => p.etage === e.id && calqueDeType(p))).sort((a, b) => a.z - b.z);
+    if (!etages.length) { etages = [{ id: null, nom: "Niveau unique", z: model.bbTout.min[2] }]; avert.push("Aucun niveau (étage) renseigné dans le fichier : un seul plan, coupé à 1 m au-dessus du point le plus bas."); }
+    const de = (e) => model.produits.map((p, i) => i).filter((i) => (e.id == null || model.produits[i].etage === e.id) && calqueDeType(model.produits[i]));
+    // bornes communes a tous les plans (repere du batiment)
+    let G = { min: [Infinity, Infinity], max: [-Infinity, -Infinity] };
+    for (const e of etages) for (const i of de(e)) { const b = bbR(model.produits[i]); G = { min: [Math.min(G.min[0], b.min[0]), Math.min(G.min[1], b.min[1])], max: [Math.max(G.max[0], b.max[0]), Math.max(G.max[1], b.max[1])] }; }
+    if (!isFinite(G.min[0])) return { segs: [], textes: [], cercles: [], axes: { u: [], v: [] }, etages: [], avertissements: ["Rien à relever : aucun mur, poteau, dalle ni escalier dans cette maquette."], vide: true };
+    const W = G.max[0] - G.min[0], pas = W + 5 + 3;
+    // ---- axes deduits (murs alignes avec le batiment, poteaux) ----
+    const vu = [], vv = [];
+    for (const e of etages) for (const i of de(e)) {
+      const p = model.produits[i], b = bbR(p), du = b.max[0] - b.min[0], dv = b.max[1] - b.min[1], cu = (b.min[0] + b.max[0]) / 2, cv = (b.min[1] + b.max[1]) / 2;
+      if (estMur(p)) { if (du > 2 * dv && du >= 0.8) vv.push({ x: cv, w: du }); else if (dv > 2 * du && dv >= 0.8) vu.push({ x: cu, w: dv }); }
+      else if (/^IFCCOLUMN/.test(p.ifc)) { vu.push({ x: cu, w: 1 }); vv.push({ x: cv, w: 1 }); }
+    }
+    const grouper = (L) => { L.sort((a, b) => a.x - b.x); const out = []; for (const v of L) { const d = out[out.length - 1]; if (d && v.x - d.xm <= 0.15) { d.s += v.x * v.w; d.w += v.w; d.xm = d.s / d.w; } else out.push({ s: v.x * v.w, w: v.w, xm: v.x }); } return out.filter((d) => d.w >= 1.5).slice(0, 40).map((d) => ({ pos: d.xm, poids: d.w })); };
+    const axU = o.axes ? grouper(vu) : [], axV = o.axes ? grouper(vv) : [];
+    const lettres = "ABCDEFGHJKLMNPQRSTUVWXYZ"; axU.forEach((a, k) => (a.nom = String(k + 1))); axV.forEach((a, k) => (a.nom = k < lettres.length ? lettres[k] : `A${k}`));
+    if (o.axes && (axU.length < 2 || axV.length < 2)) avert.push("Peu d'axes déduits (murs et poteaux trop irréguliers ou trop courts) : le quadrillage est partiel.");
+    if (o.axes && (axU.length || axV.length)) avert.push("Axes déduits des murs et des poteaux, pas lus dans le fichier : ce ne sont pas les axes de l'architecte.");
+    const segs = [], textes = [], cercles = [], infosEtages = [];
+    const L = (a, b, calque) => segs.push({ a, b, calque }), T = (p, txt, h, calque = "TEXTE", extra = {}) => textes.push({ p, txt, h, calque, centre: true, ...extra });
+    const coteH = (u1, u2, y, du, txt) => { L([u1 + du, y], [u2 + du, y], "COTES"); for (const u of [u1, u2]) { L([u + du, y - 0.12], [u + du, y + 0.12], "COTES"); L([u + du - 0.07, y - 0.07], [u + du + 0.07, y + 0.07], "COTES"); } T([(u1 + u2) / 2 + du, y + 0.1], txt ?? mmT(u2 - u1), 140, "COTES"); };
+    const coteV = (v1, v2, x, du, txt) => { L([x + du, v1], [x + du, v2], "COTES"); for (const v of [v1, v2]) { L([x + du - 0.12, v], [x + du + 0.12, v], "COTES"); L([x + du - 0.07, v - 0.07], [x + du + 0.07, v + 0.07], "COTES"); } T([x + du - 0.1, (v1 + v2) / 2], txt ?? mmT(v2 - v1), 140, "COTES", { rot: 90 }); };
+    etages.forEach((e, k) => {
+      const du = k * pas, idx = de(e), pieces = idx.map((i) => model.produits[i]);
+      const dalles = idx.filter((i) => /^IFCSLAB/.test(model.produits[i].ifc) && model.produits[i].bb.max[2] > e.z - 0.3 && model.produits[i].bb.max[2] < e.z + 0.9);
+      const top = dalles.length ? Math.max(...dalles.map((i) => model.produits[i].bb.max[2])) : null, bas = dalles.length ? Math.min(...dalles.map((i) => model.produits[i].bb.min[2])) : null;
+      const zBase = top ?? e.z, hMurs = Math.max(0, ...pieces.filter(estMur).map((p) => p.bb.max[2]));
+      let zc = zBase + o.hCoupe; if (hMurs && zc > hMurs - 0.1) zc = (zBase + hMurs) / 2;
+      const plan = [];
+      for (const s of couper(model, { axe: "z", v: zc }, (pi) => idx.includes(pi) && !/^IFCSLAB/.test(model.produits[pi].ifc))) plan.push({ ...s, calque: calqueDeType(model.produits[s.pi]) || "MUR" });
+      if (dalles.length) { const zd = top - Math.min(0.03, (top - bas) / 3); for (const s of couper(model, { axe: "z", v: zd }, (pi) => dalles.includes(pi))) plan.push({ ...s, calque: "DALLE" }); }
+      for (const s of plan) L([...Rr(s.a)].map((x, j) => (j ? x : x + du)), Rr(s.b).map((x, j) => (j ? x : x + du)), s.calque);
+      // contour des dalles de ce niveau : hors tout
+      let D = { min: [Infinity, Infinity], max: [-Infinity, -Infinity] };
+      for (const i of dalles) { const b = bbR(model.produits[i]); D = { min: [Math.min(D.min[0], b.min[0]), Math.min(D.min[1], b.min[1])], max: [Math.max(D.max[0], b.max[0]), Math.max(D.max[1], b.max[1])] }; }
+      if (!isFinite(D.min[0])) D = G;
+      T([G.min[0] + du + 0.6, G.max[1] + 3.1], `${e.nom}  ${top != null ? "dessus de dalle " + zT(top - etages[0].z) : zT(e.z - etages[0].z)}   (coupe à ${o.hCoupe.toFixed(2).replace(".", ",")} m au-dessus)`, 300, "TEXTE", { centre: false });
+      if (o.axes) {
+        for (const a of axU) { L([a.pos + du, G.min[1] - 0.9], [a.pos + du, G.max[1] + 0.9], "AXES"); cercles.push({ c: [a.pos + du, G.max[1] + 1.15], r: 0.22, calque: "AXES" }); T([a.pos + du, G.max[1] + 1.15 - 0.06], a.nom, 160, "AXES"); }
+        for (const a of axV) { L([G.min[0] - 0.9 + du, a.pos], [G.max[0] + 0.9 + du, a.pos], "AXES"); cercles.push({ c: [G.min[0] - 1.15 + du, a.pos], r: 0.22, calque: "AXES" }); T([G.min[0] - 1.15 + du, a.pos - 0.06], a.nom, 160, "AXES"); }
+      }
+      if (o.cotes) {
+        for (let q = 0; q + 1 < axU.length; q++) coteH(axU[q].pos, axU[q + 1].pos, G.max[1] + 1.9, du);
+        if (axU.length > 2) coteH(axU[0].pos, axU[axU.length - 1].pos, G.max[1] + 2.4, du);
+        for (let q = 0; q + 1 < axV.length; q++) coteV(axV[q].pos, axV[q + 1].pos, G.min[0] - 1.9, du);
+        if (axV.length > 2) coteV(axV[0].pos, axV[axV.length - 1].pos, G.min[0] - 2.4, du);
+        coteH(D.min[0], D.max[0], G.min[1] - 1.5, du); coteV(D.min[1], D.max[1], G.max[0] + 1.5, du);
+      }
+      infosEtages.push({ nom: e.nom, z: e.z, top, bas, epais: top != null ? top - bas : null, coupe: zc, nbSegs: plan.length, hors: [D.max[0] - D.min[0], D.max[1] - D.min[1]] });
+      if (top == null) avert.push(`Niveau « ${e.nom} » : aucune dalle trouvée à ce niveau, le contour des dalles manque.`);
+      if (!plan.length) avert.push(`Niveau « ${e.nom} » : rien à la hauteur de coupe.`);
+    });
+    // ---- schema des niveaux (a droite des plans) ----
+    if (o.niveaux && etages.length) {
+      const x0 = etages.length * pas + 1, zr = etages[0].z, LG = 7;
+      infosEtages.forEach((e, k) => {
+        const y = (e.top ?? e.z) - zr;
+        L([x0, y], [x0 + LG, y], "NIVEAUX"); T([x0 + LG + 0.2, y - 0.05], `${e.nom}   ${zT(y)}`, 180, "NIVEAUX", { centre: false });
+        if (e.epais) { L([x0, y - e.epais], [x0 + LG * 0.55, y - e.epais], "NIVEAUX"); L([x0 + LG * 0.55, y - e.epais], [x0 + LG * 0.55, y], "NIVEAUX"); T([x0 + LG * 0.55 + 0.1, y - e.epais - 0.2], `ép. dalle ${mmT(e.epais)}`, 120, "NIVEAUX", { centre: false }); }
+        if (k) { const yp = (infosEtages[k - 1].top ?? infosEtages[k - 1].z) - zr; coteV(yp, y, x0 - 1.3, 0, mmT(y - yp)); }
+      });
+      T([x0, (infosEtages.length ? (infosEtages[infosEtages.length - 1].top ?? infosEtages[infosEtages.length - 1].z) - zr : 0) + 1.2], `Niveaux : cotes relatives à « ${etages[0].nom} » (altitude du fichier ${zT(zr)} m)`, 200, "TEXTE", { centre: false });
+    }
+    return { segs: fusionner(segs.filter((s) => s.calque !== "COTES" && s.calque !== "AXES")).concat(segs.filter((s) => s.calque === "COTES" || s.calque === "AXES")), textes, cercles, axes: { u: axU, v: axV }, etages: infosEtages, avertissements: avert, angle: th };
+  }
+
+  return { parse, build, depuisStep, projection, releve, CALQUES_RELEVE, matriceAxe, matricePoser, pivoter, annulerPivot, estIdentite, comparer, fusionComparaison, VUES2D, CALQUES_VUE, texteIFC, facades, elevation, orientation, FACES, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
 })();
 export default IFC;
