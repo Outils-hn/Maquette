@@ -1698,6 +1698,87 @@ const IFC = (() => {
   }
 
   const couleurType = (ifc) => COULEURS[ifc] || [0.62, 0.64, 0.66];
-  return { parse, build, depuisStep, projection, VUES2D, CALQUES_VUE, texteIFC, facades, elevation, orientation, FACES, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
+
+  // ---------- Comparaison de deux versions d'un modele (1.13) ----------
+  // Appariement : par GlobalId (IFC) ; sinon par type + nom, puis par forme identique (piece renommee), la plus proche d'abord.
+  // Resultat : { paires:[{statut, a, b, details[], delta}], ajoutes:[indices dans B], supprimes:[indices dans A], compte, cle, tol }
+  // statut : identique | deplace | modifie ; tol : tolerance en metres (1 mm par defaut)
+  const SIG = new WeakMap();
+  function sigGeo(p) {
+    let r = SIG.get(p); if (r) return r;
+    let n = 0, aire = 0;
+    for (const m of p.morceaux) { const T = m.T; for (let i = 0; i < T.length; i += 9) { const ux = T[i + 3] - T[i], uy = T[i + 4] - T[i + 1], uz = T[i + 5] - T[i + 2], vx = T[i + 6] - T[i], vy = T[i + 7] - T[i + 1], vz = T[i + 8] - T[i + 2]; aire += 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx); n++; } }
+    r = { n, aire }; SIG.set(p, r); return r;
+  }
+  const centreBB = (p) => [0, 1, 2].map((k) => (p.bb.min[k] + p.bb.max[k]) / 2);
+  const tailleBB = (p) => [0, 1, 2].map((k) => p.bb.max[k] - p.bb.min[k]);
+  const dist3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  const nomNet = (p) => String(p.nom || "").replace(/ · \d+$/, ""); // les STEP numerotent les pieces (« Vis · 3 ») : le numero depend de l'ordre, pas de la piece
+  const nomEtageDe = (M, id) => { const e = M.etages.find((x) => x.id === id); return e ? e.nom : ""; };
+  const mmTxt = (v) => String(Math.round(v * 10000) / 10).replace(".", ",");
+  function comparer(A, B, opts = {}) {
+    const tol = opts.tol ?? 0.001;
+    const ia = new Set(A.produits.map((_, i) => i)), ib = new Set(B.produits.map((_, i) => i)), paires = [];
+    let cle = "nom";
+    const lier = (i, j) => { ia.delete(i); ib.delete(j); paires.push([i, j]); };
+    // 1. GlobalId
+    const parGid = new Map(); A.produits.forEach((p, i) => { if (p.gid && !parGid.has(p.gid)) parGid.set(p.gid, i); });
+    for (let j = 0; j < B.produits.length; j++) { const g = B.produits[j].gid, i = g ? parGid.get(g) : undefined; if (i != null && ia.has(i)) { lier(i, j); cle = "gid"; } }
+    // 2. meme type et meme nom : les plus proches d'abord
+    const groupe = (set, M, f) => { const m = new Map(); for (const i of set) { const k = f(M.produits[i]); (m.get(k) || m.set(k, []).get(k)).push(i); } return m; };
+    const apparier = (f) => {
+      const GA = groupe(ia, A, f), GB = groupe(ib, B, f);
+      for (const [k, LB] of GB) {
+        const LA = GA.get(k); if (!LA) continue;
+        if (LA.length * LB.length > 4e6) { for (let n = 0; n < Math.min(LA.length, LB.length); n++) lier(LA[n], LB[n]); continue; }
+        const cand = []; for (const i of LA) { const ca = centreBB(A.produits[i]); for (const j of LB) cand.push([dist3(ca, centreBB(B.produits[j])), i, j]); }
+        cand.sort((x, y) => x[0] - y[0]);
+        for (const [, i, j] of cand) if (ia.has(i) && ib.has(j)) lier(i, j);
+      }
+    };
+    apparier((p) => `${p.ifc}|${nomNet(p)}`);
+    // 3. forme identique, nom different (piece renommee, ou deplacee dans l'arbre)
+    apparier((p) => { const g = sigGeo(p), t = tailleBB(p); return `${p.ifc}|${t.map((v) => Math.round(v * 1000)).join(",")}|${Math.round(g.aire * 1e4)}`; });
+    const compte = { ajoute: ib.size, supprime: ia.size, modifie: 0, deplace: 0, identique: 0 }, res = [];
+    for (const [i, j] of paires) {
+      const a = A.produits[i], b = B.produits[j], details = [];
+      if (nomNet(a) !== nomNet(b)) details.push(`Nom : ${nomNet(a)} → ${nomNet(b)}`);
+      if (a.type !== b.type) details.push(`Type : ${a.type} → ${b.type}`);
+      const ea = nomEtageDe(A, a.etage), eb = nomEtageDe(B, b.etage); if (ea !== eb) details.push(`${B.source === "step" ? "Sous-ensemble" : "Étage"} : ${ea || "—"} → ${eb || "—"}`);
+      if ((a.materiau || "") !== (b.materiau || "")) details.push(`Matériau : ${a.materiau || "—"} → ${b.materiau || "—"}`);
+      const mapPs = (p) => { const m = new Map(); for (const ps of p.psets || []) if (!/^Géométrie \(calculée/.test(ps.nom)) for (const x of ps.props) m.set(`${ps.nom}.${x.nom}`, x.val); return m; };
+      const pa = mapPs(a), pb = mapPs(b), diffPs = [];
+      for (const k of new Set([...pa.keys(), ...pb.keys()])) if (String(pa.get(k) ?? "") !== String(pb.get(k) ?? "")) diffPs.push(`${k} : ${pa.get(k) ?? "—"} → ${pb.get(k) ?? "—"}`);
+      if (diffPs.length) details.push(...diffPs.slice(0, 5).map((t) => `Propriété ${t}`), ...(diffPs.length > 5 ? [`… et ${diffPs.length - 5} autres propriétés`] : []));
+      const ta = tailleBB(a), tb = tailleBB(b), axes = ["X", "Y", "Z"], dim = [];
+      for (let k = 0; k < 3; k++) if (Math.abs(ta[k] - tb[k]) > tol) dim.push(`${axes[k]} ${mmTxt(ta[k])} → ${mmTxt(tb[k])} mm`);
+      if (dim.length) details.push(`Dimensions : ${dim.join(", ")}`);
+      else { const ga = sigGeo(a).aire, gb = sigGeo(b).aire; if (Math.abs(ga - gb) > 0.002 * Math.max(ga, gb, 1e-9) + 1e-9) details.push("Forme modifiée (mêmes dimensions hors tout)"); }
+      const ca = centreBB(a), cb = centreBB(b), delta = [cb[0] - ca[0], cb[1] - ca[1], cb[2] - ca[2]], bouge = Math.hypot(delta[0], delta[1], delta[2]) > tol;
+      let statut = "identique";
+      if (details.length) { statut = "modifie"; if (bouge && !dim.length) details.push(`Déplacé de ${mmTxt(Math.hypot(delta[0], delta[1], delta[2]))} mm`); }
+      else if (bouge) { statut = "deplace"; details.push(`Déplacé de ${mmTxt(Math.hypot(delta[0], delta[1], delta[2]))} mm (X ${mmTxt(delta[0])}, Y ${mmTxt(delta[1])}, Z ${mmTxt(delta[2])})`); }
+      compte[statut]++; res.push({ statut, a: i, b: j, details, delta: bouge ? delta : null });
+    }
+    return { paires: res, ajoutes: [...ib].sort((x, y) => x - y), supprimes: [...ia].sort((x, y) => x - y), compte, cle, tol };
+  }
+  // Modele d'affichage : les pieces de B (nouvelle version) marquees par statut, plus les pieces supprimees de A ;
+  // chaque piece porte cmp (ajoute | supprime | modifie | deplace | identique) et cmpInfo (lignes de detail)
+  function fusionComparaison(A, B, R) {
+    const st = new Map(R.paires.map((x) => [x.b, x])), ajoutes = new Set(R.ajoutes);
+    const produits = B.produits.map((p, j) => { const x = st.get(j); return { ...p, cmp: ajoutes.has(j) ? "ajoute" : x.statut, cmpInfo: x ? x.details : [], cmpA: x ? x.a : null }; });
+    const etages = B.etages.map((e) => ({ ...e })); let idMax = Math.max(0, ...B.produits.map((p) => +p.id || 0), ...A.produits.map((p) => +p.id || 0)), idEt = Math.max(0, ...etages.map((e) => +e.id || 0)) + 1;
+    const mapEt = new Map();
+    for (const i of R.supprimes) {
+      const p = A.produits[i], ea = A.etages.find((e) => e.id === p.etage);
+      let et = p.etage; if (ea) { if (!mapEt.has(ea.id)) { const ex = etages.find((e) => e.nom === ea.nom); if (ex) mapEt.set(ea.id, ex.id); else { etages.push({ ...ea, id: idEt }); mapEt.set(ea.id, idEt++); } } et = mapEt.get(ea.id); }
+      produits.push({ ...p, id: ++idMax, etage: et, mur: null, cmp: "supprime", cmpInfo: ["Absent de la nouvelle version"], cmpA: i });
+    }
+    const mn = [...B.bbTout.min], mx = [...B.bbTout.max];
+    for (const p of produits) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], p.bb.min[k]); mx[k] = Math.max(mx[k], p.bb.max[k]); }
+    return { ...B, produits, etages, bbTout: { min: mn, max: mx }, comparaison: { compte: R.compte, cle: R.cle } };
+  }
+
+  return { parse, build, depuisStep, projection, comparer, fusionComparaison, VUES2D, CALQUES_VUE, texteIFC, facades, elevation, orientation, FACES, trisDe, aretesDe, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
 })();
 export default IFC;

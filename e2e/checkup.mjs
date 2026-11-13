@@ -248,5 +248,42 @@ await step("Telephone et theme sombre", async () => {
   await s.c.close();
 });
 
+await step("Comparaison de deux versions", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { c, page } = await ouvrir();
+  verif("Comparer : bouton inactif sans maquette", await page.isDisabled("#bCompare"));
+  await exemple(page);
+  verif("Comparer : bouton actif une fois une maquette ouverte", await page.isEnabled("#bCompare"));
+  const ifc = readFileSync("exemples/TinyHouse.ifc", "utf8"), v2 = ifc.replaceAll("'Win_Living_L'", "'Win_Living_X'");
+  await page.setInputFiles("#ouvrir3", { name: "TinyHouse-v2.ifc", mimeType: "application/octet-stream", buffer: Buffer.from(v2) });
+  await page.waitForSelector("#zoneCmp:not([hidden])", { timeout: 20000 });
+  verif("Comparer : la barre s'affiche avec les deux noms", /TinyHouse.*→.*TinyHouse-v2\.ifc/.test(await page.locator("#cmpNoms").textContent()), await txt(page, "#cmpNoms"));
+  const chips = await page.locator(".chip-cmp").evaluateAll((L) => L.map((b) => `${b.dataset.cmps}:${b.querySelector("b").textContent}:${b.disabled}`));
+  verif("Comparer : 1 modifie, rien d'ajoute, de supprime ni de deplace", chips.join(",") === "supprime:0:true,ajoute:0:true,modifie:1:false,deplace:0:true", chips.join(","));
+  verif("Comparer : onglet Ecarts actif, la ligne et son detail sont la", await page.locator('[data-onglet="ecarts"][aria-selected="true"]').count() === 1 && /Win_Living_X/.test(await txt(page, "#tables")) && /Nom : Win_Living_L → Win_Living_X/.test(await txt(page, "#tables")));
+  verif("Comparer : la liste porte la mention a controler", /à contrôler/i.test(await txt(page, "#avertListe")));
+  await page.click("#tables [data-pi]"); await page.waitForFunction(() => /Comparaison/.test(document.querySelector("#props")?.textContent || ""), null, { timeout: 5000 }).catch(() => {});
+  verif("Comparer : la fiche indique le statut et le detail", /comparaison/i.test(await txt(page, "#props")) && /Modifié/i.test(await txt(page, "#props")) && /Win_Living_X/.test(await txt(page, "#props")));
+  await page.screenshot({ path: `${OUT}/13-comparaison.png` });
+  await page.click('[data-cmps="modifie"]'); await page.waitForTimeout(150);
+  verif("Comparer : filtre de statut (liste vide quand il est decoche)", /Aucun écart/.test(await txt(page, "#tables")));
+  await page.click('[data-cmps="modifie"]'); await page.waitForTimeout(150);
+  verif("Comparer : filtre rearme", /Win_Living_X/.test(await txt(page, "#tables")));
+  const vis = (opt) => page.evaluate(() => window.__viewer.M.produits.filter((_, i) => window.__viewer.visible(i)).length);
+  const avecFond = await vis(); await page.uncheck("#cmpFond"); await page.waitForTimeout(150); const sansFond = await vis();
+  verif("Comparer : « pieces identiques en fond » masque ou montre les pieces inchangees", avecFond > 20 && sansFond === 1, `${avecFond} / ${sansFond}`);
+  await page.check("#cmpFond");
+  await page.click("#cmpInverser"); await page.waitForTimeout(400);
+  verif("Comparer : inverser echange ancienne et nouvelle version", /^TinyHouse-v2\.ifc.*→.*TinyHouse/.test(await page.locator("#cmpNoms").textContent()) && /Win_Living_L/.test(await txt(page, "#tables")), await page.locator("#cmpNoms").textContent());
+  const { default: IFCm } = await import("../js/core.js"), M0 = IFCm.build(ifc);
+  const stp = IFCm.step(M0, M0.produits.map((_, i) => i), { fichier: "autre.stp", nom: "autre" }).texte;
+  await page.setInputFiles("#ouvrir3", { name: "autre.stp", mimeType: "application/step", buffer: Buffer.from(stp) });
+  await page.waitForFunction(() => /même type/.test(document.querySelector("#toast")?.textContent || ""), null, { timeout: 60000 });
+  verif("Comparer : un IFC et un STEP ne se comparent pas (message clair)", await page.locator("#zoneCmp").isVisible());
+  await page.click("#cmpQuitter"); await page.waitForTimeout(300);
+  verif("Comparer : quitter ramene a la maquette normale", await page.locator("#zoneCmp").isHidden() && await page.locator('[data-onglet="ecarts"]').isHidden() && await page.locator('[data-onglet="fen"]').isVisible());
+  await c.close();
+});
+
 await browser.close();
 verif("Fin du check-up", true);
