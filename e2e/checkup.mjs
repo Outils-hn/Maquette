@@ -142,6 +142,61 @@ await step("Ouvrir un fichier", async () => {
   await c.close();
 });
 
+await step("Fichier STEP (OpenCascade dans une boite sans reseau)", async () => {
+  const { c, page } = await ouvrir();
+  const origine = new URL(BASE).origin, sortis = [];
+  page.on("request", (r) => { const u = r.url(); if (!u.startsWith(origine) && !u.startsWith("data:") && !u.startsWith("blob:") && !/fonts\.(googleapis|gstatic)\.com/.test(u)) sortis.push(u); });
+  // 1. la boite est etanche : chaque tentative de sortie de donnees est refusee par la politique de securite
+  const t = await page.evaluate((u) => window.__viewer.testerBoite(u), BASE + "index.html");
+  verif("Boite STEP : fetch, XHR, balise, WebSocket et image bloques (CSP)", t.boite.passe.length === 0 && t.boite.viol.length >= 5 && t.boite.viol.includes("connect-src") && t.boite.viol.includes("img-src"), JSON.stringify(t.boite));
+  verif("Boite STEP : son travailleur est aussi coupe du reseau (fetch, importScripts, WebSocket)", t.travailleur.passe.length === 0 && t.travailleur.viol.length >= 3, JSON.stringify(t.travailleur));
+  // 2. ouverture d'un STEP (celui que Maquette exporte lui-meme depuis l'exemple : dimensions connues)
+  const { readFileSync } = await import("node:fs"); const { default: IFC } = await import("../js/core.js");
+  const M0 = IFC.build(readFileSync("exemples/TinyHouse.ifc", "utf8"));
+  const stp = IFC.step(M0, M0.produits.map((_, i) => i), { fichier: "TinyHouse.stp", nom: "TinyHouse" }).texte;
+  await page.setInputFiles("#ouvrir", { name: "TinyHouse.stp", mimeType: "application/step", buffer: Buffer.from(stp) });
+  await page.waitForFunction(() => window.__viewer?.M?.source === "step", null, { timeout: 60000 });
+  await page.waitForTimeout(500);
+  const info = await page.evaluate(() => { const M = window.__viewer.M; const b = M.bbTout; return { n: M.produits.length, g: M.etages.length, bb: [b.min, b.max].map((a) => a.map((v) => +v.toFixed(2))), nrm: M.produits.every((p) => p.morceaux.every((m) => m.T.length > 0)), ar: M.produits.some((p) => p.morceaux.some((m) => m.A.length > 0)) }; });
+  verif("STEP ouvert : 110 solides, dimensions identiques a l'IFC d'origine (mm exacts)", info.n === 110 && JSON.stringify(info.bb) === JSON.stringify([[-0.42, -0.17, 0], [12.25, 3.47, 4.01]]), JSON.stringify(info));
+  verif("STEP : triangles et aretes presents", info.nrm && info.ar);
+  verif("STEP : en-tete (format, nombre de pieces)", /STEP/.test(await txt(page, "#infos")) && /110 pièces/.test(await txt(page, "#infos")), await txt(page, "#infos"));
+  verif("STEP : les sous-ensembles remplacent les etages (pas de cote ni de bouton Plan)", (await page.locator("#arbre .etage").count()) === info.g && (await page.locator("#arbre [data-plan]").count()) === 0);
+  verif("STEP : onglets Fenetres / Murs / Facades masques, liste des pieces affichee", (await page.locator('[data-onglet="fen"]').isHidden()) && (await page.locator('[data-onglet="fac"]').isHidden()) && /Sous-ensemble/.test(await txt(page, "#tables thead")) && (await page.locator("#tables tbody tr").count()) === 110);
+  verif("STEP : export STEP desactive (c'est deja un STEP)", await page.locator("#bStep").isDisabled());
+  await page.locator("#tables td button", { hasText: "Wall_Left" }).first().click(); await page.waitForTimeout(300);
+  const fiche = await txt(page, "#props");
+  verif("STEP : fiche d'une piece (sous-ensemble, surface, volume, encombrement)", /Sous-ensemble/.test(fiche) && /Surface .* cm²/.test(fiche) && /Volume .* cm³/.test(fiche) && /X 10 500 mm/.test(fiche) && /Y 150 mm/.test(fiche), fiche.slice(0, 200));
+  await page.screenshot({ path: `${OUT}/10-step.png` });
+  await page.evaluate(() => { window.__viewer.poserCoupe("z", 1.5); window.__viewer.vue("plan"); }); await page.waitForTimeout(400);
+  await page.screenshot({ path: `${OUT}/11-step-plan.png` });
+  // retour a un IFC : onglets, pastilles de type et export STEP reviennent
+  await page.setInputFiles("#ouvrir", { name: "TinyHouse.ifc", mimeType: "application/octet-stream", buffer: readFileSync("exemples/TinyHouse.ifc") });
+  await page.waitForFunction(() => window.__viewer?.M?.source !== "step" && window.__viewer?.M?.produits.length === 71, null, { timeout: 30000 });
+  await page.waitForTimeout(400);
+  verif("Retour a un IFC apres un STEP : onglets, pastilles de type et export STEP reviennent", await page.locator('[data-onglet="fen"]').isVisible() && await page.locator("#filtres").isVisible() && await page.locator("#bStep").isEnabled() && (await page.locator("#arbre .etage").count()) === 4 && /Étage|Fenêtres/.test(await txt(page, ".listes-tete")));
+  // 3. fichier STEP illisible : message clair, rien ne casse
+  await page.setInputFiles("#ouvrir", { name: "vide.stp", mimeType: "application/step", buffer: Buffer.from("ceci n'est pas un STEP") });
+  await page.waitForFunction(() => /STEP/.test(document.querySelector("#toast")?.textContent || ""), null, { timeout: 30000 }).catch(() => {});
+  verif("STEP illisible : message clair", /Impossible de lire ce fichier STEP/.test(await txt(page, "#toast")), await txt(page, "#toast"));
+  // 4. rien n'est parti vers un autre site pendant tout cela
+  verif("STEP : aucune requete vers un autre site", sortis.length === 0, sortis.slice(0, 3).join(" "));
+  await c.close();
+});
+
+await step("Lecteur STEP : un fichier du moteur modifie est refuse", async () => {
+  const c = await browser.newContext({ viewport: { width: 1200, height: 800 }, serviceWorkers: "block" });
+  const page = await c.newPage();
+  await page.route("**/vendor/occt/occt-import-js.js", (r) => r.fulfill({ body: "self.piege = 1;", contentType: "text/javascript" }));
+  await page.goto(BASE, { waitUntil: "load" });
+  const { readFileSync } = await import("node:fs");
+  await page.setInputFiles("#ouvrir", { name: "piece.stp", mimeType: "application/step", buffer: readFileSync(new URL("../exemples/TinyHouse.ifc", import.meta.url)).subarray(0, 200) });
+  await page.waitForFunction(() => /STEP/.test(document.querySelector("#toast")?.textContent || ""), null, { timeout: 30000 });
+  const t = await txt(page, "#toast");
+  verif("Moteur STEP altere : empreinte differente, lecteur non lance", /empreinte inattendue/.test(t) && !(await page.evaluate(() => window.__viewer?.M)), t);
+  await c.close();
+});
+
 await step("Telephone et theme sombre", async () => {
   const { c, page } = await ouvrir({ largeur: 390, hauteur: 844 });
   await exemple(page);

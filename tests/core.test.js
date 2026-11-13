@@ -337,3 +337,84 @@ ENDSEC;END-ISO-10303-21;`);
   const t0 = Date.now(); const m = IFC.build(ifc);
   assert.ok(Date.now() - t0 < 3000); assert.ok(m.produits.length >= 3);
 });
+
+// ---------- Fichiers STEP (resultat d'OpenCascade -> modele) ----------
+// cube de cote a (mm) tel qu'OpenCascade le rend : 6 faces B-rep, chacune avec ses 4 sommets et 2 triangles
+function cubeOCC(a, couleurFace = {}, couleur = null, nom = "SOLID") {
+  const C = [[[0, 0, a], [a, 0, a], [a, a, a], [0, a, a]], [[0, 0, 0], [0, a, 0], [a, a, 0], [a, 0, 0]], [[0, 0, 0], [a, 0, 0], [a, 0, a], [0, 0, a]], [[0, a, 0], [0, a, a], [a, a, a], [a, a, 0]], [[0, 0, 0], [0, 0, a], [0, a, a], [0, a, 0]], [[a, 0, 0], [a, a, 0], [a, a, a], [a, 0, a]]];
+  const pos = [], idx = [], faces = [];
+  C.forEach((q, f) => { q.forEach((p) => pos.push(...p)); idx.push(4 * f, 4 * f + 1, 4 * f + 2, 4 * f, 4 * f + 2, 4 * f + 3); faces.push([2 * f, 2 * f + 1, couleurFace[f] || null]); });
+  return { nom, couleur, pos: Float64Array.from(pos), idx: Uint32Array.from(idx), faces };
+}
+const noeud = (nom, meshes = [], enfants = []) => ({ nom, meshes, enfants });
+
+test("STEP : un cube de 100 mm donne 0,1 m, volume 1 000 cm3, surface 600 cm2, 12 aretes", () => {
+  const S = IFC.depuisStep({ meshes: [cubeOCC(100)], racine: noeud("", [0]) }, { nom: "cube.stp" });
+  assert.equal(S.source, "step"); assert.equal(S.schema, "STEP"); assert.equal(S.projet, "cube");
+  assert.equal(S.produits.length, 1);
+  const p = S.produits[0];
+  assert.deepEqual(p.bb.min.map((v) => +v.toFixed(6)), [0, 0, 0]); assert.deepEqual(p.bb.max.map((v) => +v.toFixed(6)), [0.1, 0.1, 0.1]);
+  assert.ok(Math.abs(p.geo.volume - 1e-3) < 1e-9); assert.ok(Math.abs(p.geo.surface - 0.06) < 1e-9); assert.equal(p.geo.ferme, true); assert.equal(p.geo.faces, 6);
+  assert.equal(p.morceaux.reduce((n, m) => n + m.T.length / 9, 0), 12);
+  assert.equal(p.morceaux.reduce((n, m) => n + m.A.length / 6, 0), 12, "les 12 aretes du cube, pas les diagonales des faces");
+  assert.match(p.psets[0].props.find((x) => x.nom === "Volume").val, /^1\D?000 cm³$/);
+});
+
+test("STEP : couleurs par forme et par face, un morceau par couleur", () => {
+  const S = IFC.depuisStep({ meshes: [cubeOCC(50, { 0: [1, 0, 0] }, [0, 0, 1])], racine: noeud("", [0]) });
+  const m = S.produits[0].morceaux, rgb = m.map((x) => x.couleur.rgb.map((v) => Math.round(v * 255)).join(","));
+  assert.deepEqual(rgb.sort(), ["0,0,255", "255,0,0"]);
+  assert.equal(m.find((x) => x.couleur.rgb[0] === 1).T.length / 9, 2, "la face rouge = 2 triangles");
+  const defaut = IFC.depuisStep({ meshes: [cubeOCC(50)], racine: noeud("", [0]) });
+  assert.ok(defaut.produits[0].morceaux[0].couleur.rgb.every((v) => v > 0.5 && v < 0.8), "gris neutre sans couleur dans le fichier");
+});
+
+test("STEP : sous-ensembles d'apres l'arbre, noms de pieces, deux instances homonymes separees", () => {
+  const racine = noeud("Open CASCADE STEP", [], [noeud("ASM", [], [noeud("PLATE", [0]), noeud("BRACKET", [1, 2]), noeud("BRACKET", [3, 4])])]);
+  const S = IFC.depuisStep({ meshes: [0, 1, 2, 3, 4].map(() => cubeOCC(10)), racine });
+  assert.deepEqual(S.etages.map((e) => e.nom), ["ASM", "ASM › BRACKET", "ASM › BRACKET (2)"]);
+  assert.ok(S.etages.every((e) => e.groupe && e.elev === 0 && e.z === 0));
+  assert.deepEqual(S.produits.map((p) => p.nom), ["PLATE", "BRACKET · 1", "BRACKET · 2", "BRACKET · 1", "BRACKET · 2"]);
+  assert.deepEqual(S.produits.map((p) => p.etage), [1, 2, 2, 3, 3]);
+  const seul = IFC.depuisStep({ meshes: [cubeOCC(10, {}, null, "SOLID")], racine: noeud("", [0]) });
+  assert.deepEqual(seul.produits.map((p) => p.nom), ["Pièce"]); assert.deepEqual(seul.etages.map((e) => e.nom), ["Pièces"]);
+});
+
+test("STEP : surface cylindrique tangente a un plan : pas de trait sur les facettes ni sur le raccord", () => {
+  // bande de 8 facettes (rayon 10 mm, 1/4 de tour, finit verticale) prolongee tangentiellement par un plan vertical : une face B-rep courbe + une plane
+  const pos = [], idx = [], faces = [];
+  const R = 10, n = 8; let v = 0;
+  for (let i = 0; i <= n; i++) { const t = (i / n) * (Math.PI / 2); pos.push(R * Math.sin(t), 0, R - R * Math.cos(t), R * Math.sin(t), 20, R - R * Math.cos(t)); }
+  for (let i = 0; i < n; i++) { const a = 2 * i, b = 2 * i + 1, c = 2 * i + 2, d = 2 * i + 3; idx.push(a, c, b, b, c, d); }
+  faces.push([0, 2 * n - 1, null]); v = pos.length / 3;
+  pos.push(R, 0, R, R, 20, R, R, 0, R + 30, R, 20, R + 30); idx.push(v, v + 2, v + 1, v + 1, v + 2, v + 3); faces.push([2 * n, 2 * n + 1, null]);
+  const S = IFC.depuisStep({ meshes: [{ nom: "", couleur: null, pos: Float64Array.from(pos), idx: Uint32Array.from(idx), faces }], racine: noeud("", [0]) });
+  const m = S.produits[0].morceaux[0], A = m.A, o = m.o;
+  // seuls les bords ouverts sont traces (les 2 bords longs et les 2 bouts) ; aucun trait en travers de la bande (facettes, raccord tangent)
+  let enTravers = 0, bouts = 0, longs = 0;
+  for (let i = 0; i < A.length; i += 6) {
+    const za = A[i + 2] + o[2], zb = A[i + 5] + o[2], dy = Math.abs(A[i + 1] - A[i + 4]);
+    if (dy > 0.01) { if (Math.min(za, zb) > 1e-5 && Math.max(za, zb) < 0.0399) enTravers++; else bouts++; } else longs++;
+  }
+  assert.equal(enTravers, 0, "pas de trait sur les 7 joints de facettes ni sur le raccord plan / cylindre");
+  assert.equal(bouts, 2); assert.equal(longs, 2 * (8 + 1), "8 facettes + 1 plan sur chacun des 2 bords longs");
+  assert.equal(S.produits[0].geo.ferme, false, "forme ouverte : pas de volume");
+  assert.equal(S.produits[0].psets[0].props.some((x) => x.nom === "Volume"), false);
+});
+
+test("STEP : lecture reelle avec OpenCascade (aller-retour avec l'export de Maquette)", async () => {
+  const { createRequire } = await import("node:module");
+  const occt = await createRequire(import.meta.url)("../vendor/occt/occt-import-js.js")();
+  const out = IFC.step(M, M.produits.map((_, i) => i), { fichier: "t.stp", nom: "TinyHouse" });
+  const r = occt.ReadStepFile(new Uint8Array(Buffer.from(out.texte)), { linearUnit: "millimeter", linearDeflectionType: "bounding_box_ratio", linearDeflection: 0.001, angularDeflection: 0.2 });
+  assert.equal(r.success, true);
+  const nd = (n) => ({ nom: n.name || "", meshes: Array.from(n.meshes || []), enfants: (n.children || []).map(nd) });
+  const res = { meshes: r.meshes.map((m) => ({ nom: m.name || "", couleur: m.color ? Array.from(m.color) : null, pos: Float64Array.from(m.attributes.position.array), idx: Uint32Array.from(m.index.array), faces: (m.brep_faces || []).map((f) => [f.first, f.last, f.color ? Array.from(f.color) : null]) })), racine: nd(r.root) };
+  const S = IFC.depuisStep(res, { nom: "t.stp" });
+  assert.ok(S.produits.length >= out.nbSolides && S.produits.length <= out.nbSolides + 3, `au moins une piece par solide exporte (${S.produits.length} pour ${out.nbSolides})`);
+  const f = (b) => [b.min, b.max].map((a) => a.map((v) => +v.toFixed(3)));
+  assert.deepEqual(f(S.bbTout), f(M.bbTout), "memes dimensions au mm pres que la maquette IFC d'origine");
+  assert.ok(S.produits.every((p) => p.geo.ferme && p.geo.volume > 0), "tous les solides exportes sont fermes");
+  const mur = S.produits.find((p) => p.nom === "Wall_Left");
+  assert.deepEqual(f(mur.bb), f(parNom("Wall_Left").bb));
+});

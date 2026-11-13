@@ -1,9 +1,11 @@
 // Service worker de Maquette : l'appli s'ouvre aussi sans reseau (la maquette, elle, reste sur le poste).
 // En ligne : on prend toujours la version la plus recente, qu'on garde en copie. Hors ligne : on sert la copie.
 // Les echanges avec la base (Supabase) ne passent jamais par ici.
-const VERSION = "1.10";
+const VERSION = "1.11";
 const CACHE = "maquette-" + VERSION;
 const POLICES = ["fonts.googleapis.com", "fonts.gstatic.com"];
+// Lecteur STEP (7,6 Mo, version figee, empreinte verifiee par la page) : garde d'une version de l'appli a l'autre, sans retelechargement
+const CACHE_MOTEUR = "moteur-step-1";
 const FIXES = ["./", "index.html", "icone-192.png", "icone-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -26,6 +28,10 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(req.url);
   const memeOrigine = url.origin === self.location.origin;
   if (!memeOrigine && !POLICES.includes(url.hostname)) return; // base de donnees, etc. : on ne touche pas
+  if (memeOrigine && /\/vendor\/occt\/occt-import-js\.(js|wasm)$/.test(url.pathname)) {
+    e.respondWith(caches.open(CACHE_MOTEUR).then((c) => c.match(req).then((m) => m || fetch(req).then((rep) => { if (rep && rep.ok) c.put(req, rep.clone()); return rep; }))));
+    return;
+  }
   e.respondWith(
     fetch(req).then((rep) => {
       if (rep && (rep.ok || rep.type === "opaque")) { const copie = rep.clone(); caches.open(CACHE).then((c) => c.put(req, copie)); }
