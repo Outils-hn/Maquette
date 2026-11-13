@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.7";
+import IFC from "./core.js?v=1.8";
 
-const VERSION = "1.7";
+const VERSION = "1.8";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -66,6 +66,43 @@ const RESERVEE_CONCEPTEUR = true;
         if (!zc || (a[k] <= v && b[k] <= v && c[k] <= v)) { f(a, b, c, m); continue; }
         const P = coupeZ([a, b, c], zc); for (let j = 1; j < P.length - 1; j++) f(P[0], P[j], P[j + 1], m);
       }
+    }
+  }
+  // Remplissage de la coupe : segments de coupe de chaque piece, chaines en contours, triangules dans le plan
+  function capuchons(p, tri, arete) {
+    const zc = etat.coupe, k = AXE[zc.axe], v = zc.v, i1 = k === 0 ? 1 : 0, i2 = k === 2 ? 1 : 2;
+    for (const m of p.morceaux) {
+      if (m.verre) continue;
+      const T = m.T, o = m.o, segs = [];
+      for (let i = 0; i < T.length; i += 9) {
+        const P = [0, 1, 2].map((j) => [T[i + j * 3] + o[0], T[i + j * 3 + 1] + o[1], T[i + j * 3 + 2] + o[2]]), d = P.map((q) => q[k] - v);
+        if ((d[0] > 0 && d[1] > 0 && d[2] > 0) || (d[0] < 0 && d[1] < 0 && d[2] < 0)) continue;
+        const pts = [];
+        for (let j = 0; j < 3; j++) { const a = P[j], b = P[(j + 1) % 3], da = d[j], db = d[(j + 1) % 3]; if ((da < 0 && db > 0) || (da > 0 && db < 0)) { const t = da / (da - db); pts.push([a[i1] + (b[i1] - a[i1]) * t, a[i2] + (b[i2] - a[i2]) * t]); } else if (da === 0) pts.push([a[i1], a[i2]]); }
+        if (pts.length === 2) segs.push(pts);
+      }
+      if (segs.length < 3) continue;
+      const cle = (q) => Math.round(q[0] * 1e5) + "," + Math.round(q[1] * 1e5), adj = new Map(), pt = new Map();
+      for (const [a, b] of segs) { const ka = cle(a), kb = cle(b); if (ka === kb) continue; pt.set(ka, a); pt.set(kb, b); (adj.get(ka) || adj.set(ka, []).get(ka)).push(kb); (adj.get(kb) || adj.set(kb, []).get(kb)).push(ka); }
+      const vus = new Set(), boucles = [];
+      for (const dep of adj.keys()) {
+        if (vus.has(dep) || adj.get(dep).length !== 2) continue;
+        const B = [dep]; vus.add(dep); let prec = null, cur = dep, ok = true;
+        for (let g = 0; g < 200000; g++) { const nx = adj.get(cur); if (!nx || nx.length !== 2) { ok = false; break; } const s2 = nx[0] !== prec ? nx[0] : nx[1]; if (s2 === dep) break; if (vus.has(s2)) { ok = false; break; } B.push(s2); vus.add(s2); prec = cur; cur = s2; }
+        if (ok && B.length >= 3) boucles.push(B.map((x) => pt.get(x)));
+      }
+      if (!boucles.length) continue;
+      const aire = (Q) => { let a = 0; Q.forEach((q, i) => { const r = Q[(i + 1) % Q.length]; a += q[0] * r[1] - r[0] * q[1]; }); return Math.abs(a) / 2; };
+      const dans = (q, Q) => { let c = false; for (let i = 0, j = Q.length - 1; i < Q.length; j = i++) { const a = Q[i], b = Q[j]; if ((a[1] > q[1]) !== (b[1] > q[1]) && q[0] < ((b[0] - a[0]) * (q[1] - a[1])) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
+      const A = boucles.map(aire), parent = boucles.map((Q, i) => { let best = -1; boucles.forEach((R, j) => { if (j !== i && A[j] > A[i] && dans(Q[0], R) && (best < 0 || A[j] < A[best])) best = j; }); return best; });
+      const prof = (i) => { let c = 0, x = parent[i]; while (x >= 0 && c < 50) { c++; x = parent[x]; } return c; };
+      const base = couleurDe(p, m).rgb, col = base.map((x) => x * 0.42 + 0.05);
+      const vers3 = (q) => { const r = [0, 0, 0]; r[k] = v; r[i1] = q[0]; r[i2] = q[1]; return r; };
+      boucles.forEach((B, i) => {
+        if (prof(i) % 2) return;
+        for (const t of IFC.triangulate(B, boucles.filter((_, j) => parent[j] === i))) tri(vers3(t[0]), vers3(t[1]), vers3(t[2]), col);
+      });
+      for (const B of boucles) B.forEach((q, i) => arete(vers3(q), vers3(B[(i + 1) % B.length])));
     }
   }
   function pourAretes(p, f) {
@@ -143,6 +180,8 @@ const RESERVEE_CONCEPTEUR = true;
           d.ajout(a, r, g, bl, al); d.ajout(b, r, g, bl, al); d.ajout(c, r, g, bl, al);
         });
         pourAretes(p, (a, b) => { ar.ajout(a, ea[0], ea[1], ea[2], ea[3]); ar.ajout(b, ea[0], ea[1], ea[2], ea[3]); });
+        // coupe : matiere coupee remplie (teinte foncee de l'element) et contour net
+        if (etat.coupe) capuchons(p, (a, b, c, col) => { const r = Math.round(col[0] * 255), g = Math.round(col[1] * 255), bl = Math.round(col[2] * 255); op.ajout(a, r, g, bl, 255); op.ajout(b, r, g, bl, 255); op.ajout(c, r, g, bl, 255); }, (a, b) => { ar.ajout(a, ea[0], ea[1], ea[2], ea[3]); ar.ajout(b, ea[0], ea[1], ea[2], ea[3]); });
       });
       lot("opaque", op.p, op.c, op.n, gl.TRIANGLES); lot("verre", ve.p, ve.c, ve.n, gl.TRIANGLES); lot("aretes", ar.p, ar.c, ar.n, gl.LINES);
     }
@@ -262,7 +301,14 @@ const RESERVEE_CONCEPTEUR = true;
   // ---------- Vues ----------
   function boiteVisible() {
     let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-    M.produits.forEach((p, i) => { if (!visible(i)) return; for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], p.bb.min[k]); max[k] = Math.max(max[k], p.bb.max[k]); } });
+    const vis = M.produits.filter((_, i) => visible(i));
+    // cadrage robuste : les elements isoles tres loin du batiment (reperes, terrain...) ne rapetissent pas la vue
+    let garde = () => true;
+    if (vis.length > 30) {
+      const q = [0, 1, 2].map((k) => { const c = vis.map((p) => (p.bb.min[k] + p.bb.max[k]) / 2).sort((a, b) => a - b), a = c[Math.floor(c.length * 0.02)], b = c[Math.floor(c.length * 0.98)], r = b - a; return [a - 0.3 * r - 2, b + 0.3 * r + 2]; });
+      garde = (p) => [0, 1, 2].every((k) => { const c = (p.bb.min[k] + p.bb.max[k]) / 2; return c >= q[k][0] && c <= q[k][1]; });
+    }
+    for (const p of vis) { if (!garde(p)) continue; for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], p.bb.min[k]); max[k] = Math.max(max[k], p.bb.max[k]); } }
     if (!isFinite(min[0])) { min = [0, 0, 0]; max = [1, 1, 1]; }
     if (etat.coupe) { const k = AXE[etat.coupe.axe]; max[k] = Math.min(max[k], etat.coupe.v); }
     return { min, max };
@@ -557,6 +603,23 @@ const RESERVEE_CONCEPTEUR = true;
     if (e.key === "f" || e.key === "F") etat.sel != null ? cadrerSur(etat.sel) : cadrer();
   });
 
+  $("#avertBtn").addEventListener("click", () => { const l = $("#avertListe"); l.hidden = !l.hidden; $("#avertBtn").setAttribute("aria-expanded", String(!l.hidden)); });
+
+  // ---------- Panneaux repliables et plein ecran (choix memorises sur ce poste) ----------
+  const PANNEAUX = { tArbo: "sans-arbo", tListes: "sans-listes", tFiche: "sans-fiche" };
+  let caches = []; try { caches = JSON.parse(localStorage.getItem("maquette-panneaux") || "[]"); } catch (e) { /* ignore */ }
+  const appEl = document.querySelector(".app");
+  function majPanneaux() {
+    for (const [id, cl] of Object.entries(PANNEAUX)) { appEl.classList.toggle(cl, caches.includes(cl)); $("#" + id).setAttribute("aria-pressed", String(!caches.includes(cl))); }
+    try { localStorage.setItem("maquette-panneaux", JSON.stringify(caches)); } catch (e) { /* ignore */ }
+  }
+  for (const [id, cl] of Object.entries(PANNEAUX)) $("#" + id).addEventListener("click", () => { caches = caches.includes(cl) ? caches.filter((x) => x !== cl) : [...caches, cl]; majPanneaux(); });
+  majPanneaux();
+  $("#tPlein").addEventListener("click", () => {
+    if (document.fullscreenElement) document.exitFullscreen?.(); else document.documentElement.requestFullscreen?.().catch(() => toast("Plein écran indisponible dans ce navigateur."));
+  });
+  document.addEventListener("fullscreenchange", () => $("#tPlein").setAttribute("aria-pressed", String(!!document.fullscreenElement)));
+
   // ---------- Listes (tableaux) et copie pour Excel ----------
   let ongletActif = "fen";
   const LISTES = {
@@ -632,7 +695,10 @@ const RESERVEE_CONCEPTEUR = true;
     $("#infos").textContent = `${m.schema}${m.logiciel ? ` · ${m.logiciel}` : ""} · ${m.produits.length} éléments · lu en ${ms < 1000 ? `${Math.max(1, Math.round(ms))} ms` : `${(ms / 1000).toFixed(1).replace(".", ",")} s`}`;
     // avertissements en langage courant (le detail technique reste au survol)
     const lisible = [...new Set(m.avertissements.map((a) => /^Ouvertures/.test(a) ? "certaines ouvertures ne sont pas découpées" : /^Découpes/.test(a) ? "certaines découpes de forme sont ignorées" : /^Élément long/.test(a) ? "certains éléments sont longs à calculer (détail au survol)" : /^Élément ignoré/.test(a) ? "un élément bloquant a été ignoré (détail au survol)" : "quelques formes ne sont pas dessinées"))];
-    const av = $("#avert"); av.hidden = !lisible.length; av.textContent = lisible.length ? `Maquette ouverte, mais ${lisible.join(", ")}.` : ""; av.title = m.avertissements.join("\n");
+    // pastille discrete : « n remarques », a deplier pour le detail
+    const av = $("#avert"); av.hidden = !lisible.length;
+    $("#avertBtn").textContent = `⚠ ${lisible.length} remarque${lisible.length > 1 ? "s" : ""} sur la maquette`; $("#avertBtn").setAttribute("aria-expanded", "false"); $("#avertListe").hidden = true;
+    $("#avertListe").innerHTML = lisible.map((x) => `<li>${esc(x.replace(/ \(détail au survol\)/, "").replace(/^./, (c) => c.toUpperCase()))}</li>`).join("") + `<li><small>${m.avertissements.map(esc).join("<br>")}</small></li>`;
     dimensionner(); vue("3d");
   }
   // Lecture dans un travailleur en arriere-plan (la page reste fluide) ; a defaut, directement
@@ -647,7 +713,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.7", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.8", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     let dernier = null, attente = false, tDernier = Date.now();
     // garde-fou : un element dont le calcul bloque plus de 30 s est ignore, et la lecture repart sans lui
     veille = setInterval(() => {

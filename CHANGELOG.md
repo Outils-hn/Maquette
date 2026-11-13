@@ -2,6 +2,13 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.8 — 13 novembre 2026
+
+- Nouveauté : l'appli occupe toute la fenêtre, avec un bouton plein écran ; le contenu, la fiche de l'élément et les listes se replient d'un clic (choix gardé sur le poste).
+- Nouveauté : en plan et en coupe, la matière coupée est remplie au lieu d'apparaître creuse.
+- Les remarques sur la maquette tiennent dans une petite pastille à déplier, et le cadrage ignore les éléments isolés très loin du bâtiment.
+- Corrigé : les murs de façade légère percés de nombreuses fenêtres pouvaient bloquer la lecture (temps de découpe désormais limité par élément).
+
 ## 1.7 — 13 novembre 2026
 
 - Corrigé : la lecture pouvait rester bloquée sur certaines ouvertures (arcs de cercle avec un angle hors norme). Par sécurité, un élément qui bloque le calcul plus de 30 s est maintenant ignoré automatiquement et signalé, et la lecture reprend sans lui.

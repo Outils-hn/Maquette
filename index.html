@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=1.7">
+<link rel="stylesheet" href="styles.css?v=1.8">
 </head>
 <body>
 <header class="topbar">
@@ -45,6 +45,12 @@
     <div class="fichier"><div><b id="fichier">Aucune maquette ouverte</b><small id="infos">Fichier IFC des architectes (Revit, ArchiCAD, Allplan…)</small></div></div>
     <span class="prive" title="Le fichier est lu par votre navigateur : il n'est envoyé nulle part.">Lu sur votre ordinateur, rien n'est envoyé</span>
     <span class="grow"></span>
+    <div class="bascules" role="group" aria-label="Panneaux">
+      <button type="button" class="ico" id="tArbo" aria-pressed="true" title="Afficher ou masquer le contenu (étages, types)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+      <button type="button" class="ico" id="tListes" aria-pressed="true" title="Afficher ou masquer les listes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 14h18"/></svg></button>
+      <button type="button" class="ico" id="tFiche" aria-pressed="true" title="Afficher ou masquer la fiche de l'élément"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
+      <button type="button" class="ico" id="tPlein" aria-pressed="false" title="Plein écran"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    </div>
     <button type="button" class="btn" id="bStep" disabled title="Exporter des éléments en STEP pour AutoCAD ou un logiciel 3D"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Exporter en STEP</button>
     <label class="btn primaire" for="ouvrir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Ouvrir un fichier IFC<input id="ouvrir" type="file" accept=".ifc,.ifczip,.zip"></label>
   </div>
@@ -76,7 +82,7 @@
         <button type="button" class="btn" id="bTout" title="Tout réafficher et recadrer">Tout afficher</button>
       </div>
       <div id="bulle" hidden></div>
-      <p id="avert" hidden></p>
+      <div id="avert" hidden><button type="button" id="avertBtn" aria-expanded="false"></button><ul id="avertListe" hidden></ul></div>
       <p class="aide">Glisser : tourner · Clic droit ou Maj : déplacer · Molette : zoom · Double-clic : zoomer sur l'élément</p>
       <div id="accueil">
         <div class="accueil-in">
@@ -118,7 +124,7 @@
   </section>
 </div>
 
-<footer>Maquette v1.7 · <button type="button" id="aboutBtn">Conçu par Hugo N. · Imaginé par Virgile G.</button> · 2026 · <a href="https://outils-hn.github.io/?app=Maquette&amp;v=1.7&amp;page=%2FMaquette%2F" target="_blank" rel="noopener noreferrer">Suggestion / bug</a></footer>
+<footer>Maquette v1.8 · <button type="button" id="aboutBtn">Conçu par Hugo N. · Imaginé par Virgile G.</button> · 2026 · <a href="https://outils-hn.github.io/?app=Maquette&amp;v=1.8&amp;page=%2FMaquette%2F" target="_blank" rel="noopener noreferrer">Suggestion / bug</a></footer>
 
 <dialog id="dDxf" aria-labelledby="dxf-titre">
   <div class="dxf-corps">
@@ -166,7 +172,7 @@
   <div class="apropos">
     <h3 id="da-titre">À propos</h3>
     <div class="about-head"><svg width="40" height="40" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5.5" fill="#4D7C0F"/><g transform="translate(4.56 4.56) scale(.62)" fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"><path d="M12 2.5 21 7.5v9L12 21.5 3 16.5v-9z"/><path d="M12 12 21 7.5M12 12 3 7.5M12 12v9.5"/></g></svg>
-      <div><b>Maquette</b><span class="hint">Version 1.7</span></div></div>
+      <div><b>Maquette</b><span class="hint">Version 1.8</span></div></div>
     <p>Conçu et développé par Hugo N.<br>Imaginé par Virgile G.</p>
     <p class="hint">Ouvrir les maquettes IFC reçues des architectes : voir, interroger, mesurer, lister, couper en DXF et exporter en STEP. Le fichier reste sur votre ordinateur.</p>
     <p class="hint">Dernière mise à jour : 13 novembre 2026</p>
@@ -174,7 +180,7 @@
   </div>
 </dialog>
 <div class="toast" id="toast" role="status"></div>
-<script type="module" src="js/app.js?v=1.7"></script>
+<script type="module" src="js/app.js?v=1.8"></script>
 <script>
   // Hors ligne : la copie de l'appli est gardee sur le poste (voir sw.js)
   if ("serviceWorker" in navigator && location.protocol !== "file:") addEventListener("load", () => {

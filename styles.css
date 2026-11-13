@@ -140,7 +140,10 @@ summary .nb { font-family: var(--mono); font-size: 11px; color: var(--muted); fo
 .mini.dxf:disabled { opacity: .4; cursor: default; }
 #bulle { position: absolute; z-index: 3; pointer-events: none; background: var(--ink); color: var(--bg); font-size: 12px; padding: 3px 8px; border-radius: 5px; white-space: nowrap; }
 .aide { position: absolute; right: 10px; bottom: 10px; z-index: 2; margin: 0; font-size: 11.5px; color: var(--muted); background: color-mix(in srgb, var(--surface) 85%, transparent); padding: 4px 8px; border-radius: 6px; }
-#avert { position: absolute; left: 10px; right: 10px; bottom: 44px; z-index: 2; margin: 0 auto; width: fit-content; max-width: calc(100% - 20px); background: var(--warn-soft); color: var(--warn); font-size: 12px; padding: 5px 10px; border-radius: 6px; }
+#avert { position: absolute; left: 10px; bottom: 10px; z-index: 3; max-width: min(560px, calc(100% - 20px)); }
+#avertBtn { background: var(--warn-soft); color: var(--warn); font: 600 12px/1 var(--sans); padding: 6px 10px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); cursor: pointer; }
+#avertListe { margin: 6px 0 0; padding: 8px 12px 8px 26px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow, 0 6px 20px rgba(0,0,0,.12)); font-size: 12px; color: var(--ink); max-height: 40vh; overflow: auto; display: grid; gap: 4px; }
+#avertListe li small { color: var(--muted); display: block; font-family: var(--mono, monospace); font-size: 11px; }
 
 /* Ecran d'accueil (aucun fichier ouvert) */
 #accueil { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; padding: 20px; background: linear-gradient(180deg, var(--ciel-a), var(--ciel-b)); }
@@ -260,3 +263,22 @@ fieldset.choix input { accent-color: var(--app); }
 fieldset.choix label:has(input:disabled) { opacity: .45; cursor: default; }
 dialog#dStep { width: min(460px, calc(100vw - 32px)); }
 @media (max-width: 760px) { #bStep { display: none; } }
+
+/* ---------- Plein ecran : l'appli occupe toute la fenetre, panneaux repliables ---------- */
+.topbar-in { max-width: none; }
+.app { max-width: none; height: calc(100dvh - 59px - 26px); }
+footer { max-width: none; padding: 5px 16px 6px; font-size: 12px; }
+.bascules { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.bascules .ico { width: 32px; height: 30px; display: grid; place-items: center; border: 0; background: transparent; border-radius: 6px; color: var(--muted); cursor: pointer; }
+.bascules .ico svg { width: 17px; height: 17px; }
+.bascules .ico:hover { color: var(--ink); background: var(--surface-2, rgba(0,0,0,.04)); }
+.bascules .ico[aria-pressed="true"] { color: var(--app-ink); background: color-mix(in srgb, var(--app) 12%, transparent); }
+.app.sans-arbo .arbo, .app.sans-fiche .fiche, .app.sans-listes .listes { display: none; }
+@media (min-width: 1101px) {
+  .app.sans-arbo .corps { grid-template-columns: minmax(0, 1fr) 300px; }
+  .app.sans-fiche .corps { grid-template-columns: 250px minmax(0, 1fr); }
+  .app.sans-arbo.sans-fiche .corps { grid-template-columns: minmax(0, 1fr); }
+}
+.app.sans-listes { grid-template-rows: auto minmax(0, 1fr); }
+:fullscreen .app, .plein .app { height: calc(100dvh - 59px - 26px); }
+@media (max-width: 760px) { .bascules #tArbo, .bascules #tFiche { display: none; } .app { height: auto; } }
