@@ -25,7 +25,7 @@ const IFC = (() => {
       if (c === "$" || c === "*") { out.push(null); i++; continue; }
       if (c === ".") { const j = src.indexOf(".", i + 1); out.push({ e: src.slice(i + 1, j) }); i = j + 1; continue; }
       if (/[A-Z]/i.test(c)) { // valeur typee IFCLABEL('x')
-        let j = i; while (/[A-Z0-9_]/i.test(src[j])) j++;
+        let j = i; while (j < src.length && /[A-Z0-9_]/i.test(src[j])) j++;
         const t = src.slice(i, j).toUpperCase();
         if (src[j] === "(") { const [l, k] = parseArgs(src, j); out.push({ t, v: l[0] }); i = k; } else { out.push({ e: t }); i = j; }
         continue;
@@ -317,7 +317,9 @@ const IFC = (() => {
   const COURBES = new Set(["IFCPOLYLINE", "IFCINDEXEDPOLYCURVE", "IFCCOMPOSITECURVE", "IFCTRIMMEDCURVE", "IFCCIRCLE", "IFCLINE", "IFCELLIPSE", "IFCBSPLINECURVEWITHKNOTS", "IFCGEOMETRICCURVESET", "IFCGEOMETRICSET", "IFCCARTESIANPOINT", "IFCTEXTLITERAL", "IFCTEXTLITERALWITHEXTENT", "IFCANNOTATIONFILLAREA", "IFCPOINT"]);
   const PAS_DESSINES = new Set(["IFCOPENINGELEMENT", "IFCSPACE", "IFCSITE", "IFCBUILDING", "IFCBUILDINGSTOREY", "IFCANNOTATION", "IFCGRID", "IFCVIRTUALELEMENT", "IFCPROJECT"]);
 
-  function build(text, prog) {
+  // opts.ignorer : numeros d'elements a sauter (ceux dont le calcul a bloque une lecture precedente)
+  function build(text, prog, opts = {}) {
+    const ignorer = new Set(opts.ignorer || []);
     let nbProd = 0;
     const { ents, schema } = parse(text, prog);
     const E = (r) => (r && r.r != null ? ents.get(r.r) : null);
@@ -452,7 +454,10 @@ const IFC = (() => {
     function revolution(e, M, out, c) {
       const pr = profil(e.a[0]); if (!pr) return;
       const M2 = mul(M, placement3D(e.a[1])); const ax = E(e.a[2]); if (!ax) return;
-      const a0 = pt(ax.a[0]), ad = dir(ax.a[1], [0, 1, 0]); const ang = (num(e.a[3]) || 0) * kAng; const plein = Math.abs(ang) >= 2 * Math.PI - 1e-6;
+      const a0 = pt(ax.a[0]), ad = dir(ax.a[1], [0, 1, 0]); let ang = (num(e.a[3]) || 0) * kAng;
+      // angle visiblement en degres alors que l'unite annoncee est le radian : on corrige ; jamais plus d'un tour
+      if (!isFinite(ang)) return; if (Math.abs(ang) > 2 * Math.PI + 1e-6 && Math.abs(ang) <= 360.001) ang = (ang * Math.PI) / 180; ang = Math.max(-2 * Math.PI, Math.min(2 * Math.PI, ang));
+      const plein = Math.abs(ang) >= 2 * Math.PI - 1e-6;
       const n = Math.max(2, Math.ceil(Math.abs(ang) / (Math.PI / 12)));
       const rot = (q, t) => { const v = [q[0] - a0[0], q[1] - a0[1], 0], d = dot(v, ad), pa = ad.map((x) => x * d), r = sub(v, pa), w = cross(ad, r); return tp(M2, [a0[0] + pa[0] + r[0] * Math.cos(t) + w[0] * Math.sin(t), a0[1] + pa[1] + r[1] * Math.cos(t) + w[1] * Math.sin(t), pa[2] + r[2] * Math.cos(t) + w[2] * Math.sin(t)]); };
       const tris = [], ar = [];
@@ -568,7 +573,11 @@ const IFC = (() => {
         const o = tp(Mc, [0, 0, 0]), X = norm(td(Mc, [1, 0, 0])), Y = norm(td(Mc, [0, 1, 0]));
         const ang = (T) => (T.c && (cart || T.t == null) ? Math.atan2(dot(sub(T.c, o), Y) / b, dot(sub(T.c, o), X) / a) : (T.t || 0) * kAng);
         const a1 = ang(t1); let a2 = ang(t2);
-        if (sens) { while (a2 <= a1 + 1e-9) a2 += 2 * Math.PI; } else { while (a2 >= a1 - 1e-9) a2 -= 2 * Math.PI; }
+        // balayage ramene a un tour, sans boucle (une valeur d'angle enorme ou infinie faisait tourner sans fin)
+        if (!isFinite(a1) || !isFinite(a2)) return [];
+        const tour = 2 * Math.PI, md = (x) => ((x % tour) + tour) % tour;
+        let sw = sens ? md(a2 - a1) : -md(a1 - a2); if (Math.abs(sw) < 1e-9) sw = sens ? tour : -tour;
+        a2 = a1 + sw;
         const n = Math.max(2, Math.ceil(Math.abs(a2 - a1) / (Math.PI / 16)));
         return [...Array(n + 1)].map((_, i) => { const t = a1 + ((a2 - a1) * i) / n; return tp(Mc, [a * Math.cos(t), b * Math.sin(t), 0]); });
       }
@@ -784,10 +793,13 @@ const IFC = (() => {
     // ---------- Produits ----------
     const produits = [];
     const geomOuv = new Map();
+    for (const id of ignorer) { const e = ents.get(id); avertissements.add(`Élément ignoré car son calcul bloquait : #${id}${e ? ` (${str(e.a[2]) || e.type})` : ""}`); }
     let nbO = 0;
-    for (const e of ents.deType("IFCOPENINGELEMENT")) { geomOuv.set(e.id, geomProduit(e)); if (prog && ++nbO % 500 === 0) prog(0, `Ouvertures (${nbO})`); }
+    for (const e of ents.deType("IFCOPENINGELEMENT")) { if (ignorer.has(e.id)) continue; if (prog) prog(0, `Ouvertures (${++nbO}) · #${e.id}`); geomOuv.set(e.id, geomProduit(e)); }
     for (const e of ents.candidats()) {
       const tEl = Date.now();
+      if (PAS_DESSINES.has(e.type) || !e.a || !e.a[6] || ignorer.has(e.id)) continue;
+      if (prog) prog(ents.pos / ents.size, `Éléments (${++nbProd}) · #${e.id}`);
       if (PAS_DESSINES.has(e.type)) continue;
       const pds = E(e.a && e.a[6]); if (!pds || pds.type !== "IFCPRODUCTDEFINITIONSHAPE") continue;
       let morceaux = geomProduit(e);
@@ -818,7 +830,6 @@ const IFC = (() => {
       morceaux = morceaux.flatMap((m) => { let x = m; for (const c of m.coupes || []) { if (x) x = couperMorceau(x, c); } return x && x.tris.length ? [x] : []; });
       if (!morceaux.length) continue;
       if (morceaux.reduce((s2, m) => s2 + m.aretes.length, 0) > 24) aretesVives(morceaux);
-      if (prog && ++nbProd % 150 === 0) prog(ents.pos / ents.size, `Éléments (${nbProd})`);
       // element tres long a calculer : signale par son nom (aide a comprendre une lecture lente)
       const dEl = Date.now() - tEl; if (dEl > 3000) avertissements.add(`Élément long à calculer : ${str(e.a[2]) || e.type} (${Math.round(dEl / 1000)} s)`);
       p.bb = bbox(morceaux.flatMap((m) => m.tris.flat()));

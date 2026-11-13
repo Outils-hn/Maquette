@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.6";
+import IFC from "./core.js?v=1.7";
 
-const VERSION = "1.6";
+const VERSION = "1.7";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -631,28 +631,43 @@ const RESERVEE_CONCEPTEUR = true;
     $("#fichier").textContent = nom; document.title = `${nom} — Maquette`;
     $("#infos").textContent = `${m.schema}${m.logiciel ? ` · ${m.logiciel}` : ""} · ${m.produits.length} éléments · lu en ${ms < 1000 ? `${Math.max(1, Math.round(ms))} ms` : `${(ms / 1000).toFixed(1).replace(".", ",")} s`}`;
     // avertissements en langage courant (le detail technique reste au survol)
-    const lisible = [...new Set(m.avertissements.map((a) => /^Ouvertures/.test(a) ? "certaines ouvertures ne sont pas découpées" : /^Découpes/.test(a) ? "certaines découpes de forme sont ignorées" : /^Élément long/.test(a) ? "certains éléments sont longs à calculer (détail au survol)" : "quelques formes ne sont pas dessinées"))];
+    const lisible = [...new Set(m.avertissements.map((a) => /^Ouvertures/.test(a) ? "certaines ouvertures ne sont pas découpées" : /^Découpes/.test(a) ? "certaines découpes de forme sont ignorées" : /^Élément long/.test(a) ? "certains éléments sont longs à calculer (détail au survol)" : /^Élément ignoré/.test(a) ? "un élément bloquant a été ignoré (détail au survol)" : "quelques formes ne sont pas dessinées"))];
     const av = $("#avert"); av.hidden = !lisible.length; av.textContent = lisible.length ? `Maquette ouverte, mais ${lisible.join(", ")}.` : ""; av.title = m.avertissements.join("\n");
     dimensionner(); vue("3d");
   }
   // Lecture dans un travailleur en arriere-plan (la page reste fluide) ; a defaut, directement
   // source : texte IFC (exemple) ou fichier choisi (.ifc / .ifczip, lu et decompresse dans le worker)
-  function lire(texte, nom) {
+  function lire(texte, nom, ignorer = []) {
     const t0 = performance.now();
     $("#chargement").hidden = false; $("#chargementTxt").textContent = `Lecture de ${nom}…`;
-    const fin = () => { $("#chargement").hidden = true; };
+    let veille = null;
+    const fin = () => { $("#chargement").hidden = true; clearInterval(veille); };
     const direct = () => setTimeout(async () => {
-      try { afficherModele(IFC.build(typeof texte === "string" ? texte : await IFC.texteIFC(texte)), nom, performance.now() - t0); } catch (err) { toast(`Impossible de lire ce fichier : ${err.message}`); }
+      try { afficherModele(IFC.build(typeof texte === "string" ? texte : await IFC.texteIFC(texte), null, { ignorer }), nom, performance.now() - t0); } catch (err) { toast(`Impossible de lire ce fichier : ${err.message}`); }
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.6", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.7", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    let dernier = null, attente = false, tDernier = Date.now();
+    // garde-fou : un element dont le calcul bloque plus de 30 s est ignore, et la lecture repart sans lui
+    veille = setInterval(() => {
+      const id = dernier && /#(\d+)/.exec(dernier.etape || "");
+      if (!id || Date.now() - tDernier < 30000) return;
+      w.terminate(); clearInterval(veille);
+      if (ignorer.length >= 5) { fin(); toast("Lecture abandonnée : trop d'éléments bloquent le calcul dans ce fichier."); return; }
+      toast(`Un élément bloquait la lecture (#${id[1]}) : il est ignoré, la lecture reprend.`);
+      lire(texte, nom, [...ignorer, +id[1]]);
+    }, 2000);
     w.onmessage = (e) => {
-      if (e.data.prog != null) { const et = e.data.etape || "Lecture"; $("#chargementTxt").textContent = `${nom} · ${et}${e.data.prog > 0 ? ` · ${Math.round(e.data.prog * 100)} %` : "…"}`; return; }
+      if (e.data.prog != null) {
+        dernier = e.data; tDernier = Date.now();
+        if (!attente) { attente = true; requestAnimationFrame(() => { attente = false; const et = dernier.etape || "Lecture"; $("#chargementTxt").textContent = `${nom} · ${et}${dernier.prog > 0 ? ` · ${Math.round(dernier.prog * 100)} %` : "…"}`; }); }
+        return;
+      }
       w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier : ${e.data.err}`);
     };
-    w.onerror = (e) => { e.preventDefault(); w.terminate(); direct(); };
-    w.postMessage(texte);
+    w.onerror = (e) => { e.preventDefault(); w.terminate(); clearInterval(veille); direct(); };
+    w.postMessage({ src: texte, ignorer });
   }
   function lireFichier(f) {
     if (!f) return;

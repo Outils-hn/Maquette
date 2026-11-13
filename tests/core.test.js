@@ -309,3 +309,31 @@ test("batiment tourne : orientation detectee, memes facades", () => {
   assert.equal(F.a.ouvertures.length, 4);
   assert.ok(Math.abs(F.a.metre.longueur - 10.5) < 0.01, String(F.a.metre.longueur));
 });
+
+test("element ignore (calcul bloquant) : saute, signale, le reste se lit", () => {
+  const m = IFC.build(VRAI, null, { ignorer: [49] });
+  const w = m.produits.find((p) => p.nom === "Mur onglet");
+  assert.equal(w.surf ? w.surf.trous : 0, 0);
+  assert.ok(m.avertissements.some((a) => /ignoré.*#49/.test(a)), m.avertissements.join(" | "));
+  assert.equal(m.produits.length, IFC.build(VRAI).produits.length);
+});
+
+test("arc tronque avec un angle enorme : pas de boucle sans fin", () => {
+  const ifc = VRAI.replace("ENDSEC;END-ISO-10303-21;", `#90=IFCAXIS2PLACEMENT2D(#10,$);
+#91=IFCCIRCLE(#90,500.);
+#92=IFCTRIMMEDCURVE(#91,(IFCPARAMETERVALUE(1.E20)),(IFCPARAMETERVALUE(3.)),.T.,.PARAMETER.);
+#93=IFCCARTESIANPOINT((0.,0.));
+#94=IFCPOLYLINE((#93,#93));
+#95=IFCCOMPOSITECURVESEGMENT(.CONTINUOUS.,.T.,#92);
+#96=IFCCOMPOSITECURVE((#95),.F.);
+#97=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,#96);
+#98=IFCEXTRUDEDAREASOLID(#97,#11,#15,100.);
+#99=IFCSHAPEREPRESENTATION($,'Body','SweptSolid',(#98));
+#100=IFCPRODUCTDEFINITIONSHAPE($,$,(#99));
+#101=IFCOPENINGELEMENT('z',$,$,$,$,#12,#100,$,$);
+#102=IFCREVOLVEDAREASOLID(#45,#11,#103,360.);
+#103=IFCAXIS1PLACEMENT(#10,$);
+ENDSEC;END-ISO-10303-21;`);
+  const t0 = Date.now(); const m = IFC.build(ifc);
+  assert.ok(Date.now() - t0 < 3000); assert.ok(m.produits.length >= 3);
+});
