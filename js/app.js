@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.4";
+import IFC from "./core.js?v=1.5";
 
-const VERSION = "1.4";
+const VERSION = "1.5";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -13,7 +13,7 @@ const RESERVEE_CONCEPTEUR = true;
 
   let M = null; // modele
   let nomFichier = "";
-  const etat = { cache: new Set(), caches: new Set(), isole: null, sel: null, coupe: null, mesure: false, pts: [], survol: null };
+  const etat = { cache: new Set(), caches: new Set(), isole: null, sel: null, coupe: null, mesure: false, pts: [], survol: null, face: null };
 
   // ---------- Camera ----------
   const cv = $("#vue");
@@ -278,8 +278,11 @@ const RESERVEE_CONCEPTEUR = true;
     "3d": { th: -0.95, ph: 0.42, ortho: false }, plan: { th: -Math.PI / 2, ph: 1.5697, ortho: true },
     a: { th: -Math.PI / 2, ph: 0, ortho: true }, b: { th: 0, ph: 0, ortho: true }, c: { th: Math.PI / 2, ph: 0, ortho: true }, d: { th: Math.PI, ph: 0, ortho: true },
   };
+  let ANGLE = 0; // orientation principale du batiment (les faces A a D la suivent)
   function vue(nom) {
     Object.assign(cam, VUES[nom]);
+    if ("abcd".includes(nom) && nom.length === 1) cam.th += ANGLE;
+    etat.face = "abcd".includes(nom) && nom.length === 1 ? nom : null; majDxf();
     document.querySelectorAll("[data-vue]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.vue === nom)));
     cadrer();
   }
@@ -303,7 +306,7 @@ const RESERVEE_CONCEPTEUR = true;
       for (let i = 0; i < 3; i++) cam.cible[i] += (-R.r[i] * dx + R.u[i] * dy) * s;
     } else {
       cam.th -= dx * 0.008; cam.ph = Math.max(-1.55, Math.min(1.5697, cam.ph + dy * 0.008));
-      if (cam.ortho && !document.querySelector('[data-vue="plan"][aria-pressed="true"]')) { cam.ortho = false; document.querySelectorAll("[data-vue]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.vue === "3d"))); }
+      if (cam.ortho && !document.querySelector('[data-vue="plan"][aria-pressed="true"]')) { etat.face = null; majDxf(); cam.ortho = false; document.querySelectorAll("[data-vue]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.vue === "3d"))); }
     }
     redessiner();
   });
@@ -413,6 +416,8 @@ const RESERVEE_CONCEPTEUR = true;
     else if (b.dataset.type != null) { const t = b.dataset.type; etat.caches.has(t) ? etat.caches.delete(t) : etat.caches.add(t); b.setAttribute("aria-pressed", String(!etat.caches.has(t))); envoyer(); }
     else if (b.dataset.plan != null) { e.preventDefault(); const et = M.etages.find((x) => x.id === +b.dataset.plan); poserCoupe("z", et.elev + 1); vue("plan"); }
     else if (b.dataset.vue) vue(b.dataset.vue);
+    else if (b.dataset.voirface) vue(b.dataset.voirface);
+    else if (b.dataset.elev) ouvrirDxf(b.dataset.elev);
     else if (b.dataset.onglet) onglet(b.dataset.onglet);
   });
 
@@ -421,7 +426,7 @@ const RESERVEE_CONCEPTEUR = true;
   const NOMS_COUPE = { z: "Hauteur", x: "Position X", y: "Position Y" };
   function poserCoupe(axe, v) {
     etat.coupe = axe ? { axe, v } : null;
-    $("#axeCoupe").value = axe || ""; $("#hauteur").disabled = !axe; $("#bDxf").disabled = !axe;
+    $("#axeCoupe").value = axe || ""; $("#hauteur").disabled = !axe; majDxf();
     if (axe) { const [a, b] = bornes(axe); $("#hauteur").value = String(Math.round(((v - a) / (b - a)) * 1000)); $("#hauteur").setAttribute("aria-label", NOMS_COUPE[axe]); }
     $("#valCoupe").textContent = axe ? `${axe.toUpperCase()} ${mm(v)}` : "—";
     construire(); redessiner();
@@ -436,29 +441,50 @@ const RESERVEE_CONCEPTEUR = true;
 
   // ---------- Export DXF de la coupe ----------
   const dD = $("#dDxf");
-  let dxfTexte = "", dxfNom = "";
+  let dxfTexte = "", dxfNom = "", dxfFace = null;
+  // Le bouton DXF exporte la coupe en cours, ou l'elevation de la face affichee (A a D)
+  function majDxf() { const b = $("#bDxf"); b.disabled = !M || !(etat.coupe || etat.face); b.title = etat.coupe ? "Exporter la coupe en DXF pour AutoCAD" : etat.face ? "Exporter l'élévation cotée de cette face en DXF" : "Choisissez une coupe ou une face (A à D) pour exporter en DXF"; }
+  let FAC = null; const facs = () => FAC || (FAC = IFC.facades(M, ANGLE));
+  function ouvrirDxf(face) {
+    dxfFace = face;
+    $("#dxf-titre").textContent = face ? `Élévation DXF : ${IFC.FACES[face].nom}` : "Coupe DXF pour AutoCAD";
+    $("#dxfExpl").textContent = face ? "Les murs extérieurs de cette face et leurs fenêtres et portes, vus de l'extérieur, en millimètres à l'échelle 1:1. Cotes des ouvertures par étage, dimensions de chaque ouverture, allèges et niveaux." : "Les traits coupés de chaque élément, en millimètres à l'échelle 1:1, rangés par calque (IFC-MUR, IFC-FENETRE…). Pour un DWG : ouvrir le DXF dans AutoCAD puis « Enregistrer sous ».";
+    $("#lVus").hidden = !!face; $("#lCotes").hidden = !face;
+    preparerDxf(); dD.showModal();
+  }
   function preparerDxf() {
-    const c = etat.coupe; if (!c) return;
-    const segs = IFC.couper(M, c, visible, $("#dVus").checked);
+    const c = etat.coupe; if (!dxfFace && !c) return;
     const base = nomFichier.replace(/\.ifc.*$/i, "");
-    const quoi = c.axe === "z" ? `plan coupe a ${mm(c.v)} mm` : c.axe === "x" ? `coupe verticale x = ${mm(c.v)} mm, vue depuis +X` : `coupe verticale y = ${mm(c.v)} mm, vue depuis +Y`;
-    dxfTexte = IFC.dxf(segs, `${nomFichier} - ${quoi}`);
-    dxfNom = `${base}-${c.axe === "z" ? "plan" : "coupe-" + c.axe}-${Math.round(c.v * 1000)}.dxf`;
+    let segs, textes = [];
+    if (dxfFace) {
+      const f = facs()[dxfFace], F = IFC.FACES[dxfFace];
+      const r = IFC.elevation(M, f, $("#dCotes").checked); segs = r.segs; textes = r.textes;
+      const depuis = ANGLE ? `orientation du batiment ${Math.round((ANGLE * 180) / Math.PI)} deg` : `vue depuis ${{ a: "-Y", b: "+X", c: "+Y", d: "-X" }[dxfFace]}`;
+      dxfTexte = IFC.dxf(segs, `${nomFichier} - elevation ${F.nom} (${depuis})`, textes);
+      dxfNom = `${base}-elevation-${F.nom.toLowerCase().replace(/\s+/g, "-")}.dxf`;
+    } else {
+      segs = IFC.couper(M, c, visible, $("#dVus").checked);
+      const quoi = c.axe === "z" ? `plan coupe a ${mm(c.v)} mm` : c.axe === "x" ? `coupe verticale x = ${mm(c.v)} mm, vue depuis +X` : `coupe verticale y = ${mm(c.v)} mm, vue depuis +Y`;
+      dxfTexte = IFC.dxf(segs, `${nomFichier} - ${quoi}`);
+      dxfNom = `${base}-${c.axe === "z" ? "plan" : "coupe-" + c.axe}-${Math.round(c.v * 1000)}.dxf`;
+    }
     // apercu SVG
     let mn = [Infinity, Infinity], mx = [-Infinity, -Infinity];
     for (const s2 of segs) for (const q of [s2.a, s2.b]) { mn = [Math.min(mn[0], q[0]), Math.min(mn[1], q[1])]; mx = [Math.max(mx[0], q[0]), Math.max(mx[1], q[1])]; }
     const svg = $("#apercu");
-    if (!segs.length) { svg.innerHTML = ""; $("#dInfo").textContent = "Rien n'est coupé à cet endroit : déplacez le curseur de coupe."; $("#dTelecharger").disabled = $("#dCopier").disabled = true; return; }
+    if (!segs.length) { svg.innerHTML = ""; $("#dInfo").textContent = dxfFace ? "Aucun mur extérieur trouvé sur cette face." : "Rien n'est coupé à cet endroit : déplacez le curseur de coupe."; $("#dTelecharger").disabled = $("#dCopier").disabled = true; return; }
     const m = 0.2, w = mx[0] - mn[0] + 2 * m, h = mx[1] - mn[1] + 2 * m;
     svg.setAttribute("viewBox", `${mn[0] - m} ${-mx[1] - m} ${w} ${h}`);
-    svg.innerHTML = segs.map((s2) => `<line class="c-${s2.calque}" x1="${s2.a[0]}" y1="${-s2.a[1]}" x2="${s2.b[0]}" y2="${-s2.b[1]}"/>`).join("");
+    svg.innerHTML = segs.map((s2) => `<line class="c-${s2.calque}" x1="${s2.a[0]}" y1="${-s2.a[1]}" x2="${s2.b[0]}" y2="${-s2.b[1]}"/>`).join("")
+      + textes.map((t) => `<text class="t-${t.calque}" x="${t.p[0]}" y="${-t.p[1]}" font-size="${t.h / 1000}" text-anchor="middle">${esc(t.txt)}</text>`).join("");
     const calques = [...new Set(segs.map((s2) => s2.calque))];
     $("#legende").innerHTML = calques.map((c2) => `<span><i class="c-${c2}"></i>IFC-${c2} <b class="mono">${segs.filter((s2) => s2.calque === c2).length}</b></span>`).join("");
     $("#dInfo").textContent = `${segs.length} lignes · ${mm(mx[0] - mn[0])} × ${mm(mx[1] - mn[1])} mm · unités : mm, échelle 1:1 · ${dxfNom}`;
     $("#dTelecharger").disabled = $("#dCopier").disabled = false;
   }
-  $("#bDxf").addEventListener("click", () => { preparerDxf(); dD.showModal(); });
+  $("#bDxf").addEventListener("click", () => ouvrirDxf(etat.coupe ? null : etat.face));
   $("#dVus").addEventListener("change", preparerDxf);
+  $("#dCotes").addEventListener("change", preparerDxf);
   $("#dFermer").addEventListener("click", () => dD.close());
   // ---------- Export STEP ----------
   const dS = $("#dStep");
@@ -546,6 +572,12 @@ const RESERVEE_CONCEPTEUR = true;
       ligne: (p) => [p.nom, nomEtage(p.etage), Math.round(p.surf.L * 1000), Math.round(p.surf.h * 1000), Math.round(p.surf.T * 1000), +p.surf.brute.toFixed(2), p.surf.trous, +p.surf.nette.toFixed(2), p.materiau],
       total: (L) => ["Total", `${L.length} murs`, "", "", "", +L.reduce((s, r) => s + r[5], 0).toFixed(2), L.reduce((s, r) => s + r[6], 0), +L.reduce((s, r) => s + r[7], 0).toFixed(2), ""],
     },
+    fac: {
+      titre: "Façades",
+      lignes: () => Object.values(facs()).filter((f) => f.metre).map((f) => { const m = f.metre, r2 = (x) => +x.toFixed(2); return { face: f.cle, r: [f.nom, f.murs.length, Math.round(m.longueur * 1000), Math.round(m.hauteur * 1000), r2(m.brute), m.fenetres, m.portes, r2(m.ouvertures), r2(m.nette), r2(m.tableaux), r2(m.linteaux), r2(m.appuis)] }; }),
+      cols: ["Façade", "Murs", "Longueur (mm)", "Hauteur (mm)", "Brute (m²)", "Fenêtres", "Portes", "Ouvertures (m²)", "Nette (m²)", "Tableaux (ml)", "Linteaux (ml)", "Appuis (ml)"],
+      total: (L) => { const S = (j) => +L.reduce((s2, r) => s2 + (+r[j] || 0), 0).toFixed(2); return ["Total", S(1), "", "", S(4), S(5), S(6), S(7), S(8), S(9), S(10), S(11)]; },
+    },
     tout: {
       titre: "Tous les éléments", filtre: () => true,
       cols: ["Nom", "Type", "Étage", "Matériau", "X (mm)", "Y (mm)", "Z (mm)"],
@@ -559,17 +591,28 @@ const RESERVEE_CONCEPTEUR = true;
     if (!M) return;
     document.querySelectorAll("[data-onglet]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.onglet === k)));
     const L = LISTES[k]; const lignes = [];
+    const num = (c) => /\(|Découpes|^Murs$|^Fenêtres$|^Portes$/.test(c);
+    if (L.lignes) {
+      // facades : une ligne par face, avec un bouton pour la voir et un pour son elevation DXF
+      const F = L.lignes();
+      $("#tables").innerHTML = F.length ? `<table><thead><tr>${L.cols.map((c) => `<th${num(c) ? ' class="n"' : ""}>${esc(c)}</th>`).join("")}<th>Élévation</th></tr></thead>
+        <tbody>${F.map(({ face, r }) => `<tr>${r.map((v, j) => j === 0 ? `<td><button type="button" data-voirface="${face}" title="Voir cette face">${esc(v)}</button></td>` : `<td class="n mono">${esc(fmt(v))}</td>`).join("")}<td><button type="button" class="mini" data-elev="${face}">DXF coté</button></td></tr>`).join("")}</tbody>
+        <tfoot><tr>${L.total(F.map((x) => x.r)).map((v, j) => `<td${j ? ' class="n mono"' : ""}>${esc(fmt(v))}</td>`).join("")}<td></td></tr></tfoot></table>
+        <p class="hint note-fac">Murs extérieurs repérés automatiquement (rien devant eux vu de chaque face). Tableaux : 2 × hauteur par ouverture ; linteaux : largeurs ; appuis : largeurs des fenêtres.</p>`
+        : `<p class="vide">Aucun mur extérieur repéré dans cette maquette.</p>`;
+      document.querySelectorAll("[data-onglet]").forEach((b) => { b.querySelector("span").textContent = LISTES[b.dataset.onglet].lignes ? LISTES[b.dataset.onglet].lignes().length : M.produits.filter(LISTES[b.dataset.onglet].filtre).length; });
+      return;
+    }
     M.produits.forEach((p, i) => { if (L.filtre(p)) lignes.push({ i, r: L.ligne(p) }); });
-    const num = (c) => /\(|Découpes/.test(c);
     $("#tables").innerHTML = lignes.length ? `<table><thead><tr>${L.cols.map((c) => `<th${num(c) ? ' class="n"' : ""}>${esc(c)}</th>`).join("")}</tr></thead>
       <tbody>${lignes.map(({ i, r }) => `<tr${etat.sel === i ? ' class="sel"' : ""}>${r.map((v, j) => j === 0 ? `<td><button type="button" data-pi="${i}">${esc(v)}</button></td>` : `<td${num(L.cols[j]) ? ' class="n mono"' : ""}>${esc(fmt(v))}</td>`).join("")}</tr>`).join("")}</tbody>
       <tfoot><tr>${L.total(lignes.map((x) => x.r)).map((v, j) => `<td${num(L.cols[j]) ? ' class="n mono"' : ""}>${esc(fmt(v))}</td>`).join("")}</tr></tfoot></table>`
       : `<p class="vide">Aucun élément de ce genre dans la maquette.</p>`;
-    document.querySelectorAll("[data-onglet]").forEach((b) => { const n = M.produits.filter(LISTES[b.dataset.onglet].filtre).length; b.querySelector("span").textContent = n; });
+    document.querySelectorAll("[data-onglet]").forEach((b) => { const L2 = LISTES[b.dataset.onglet]; b.querySelector("span").textContent = L2.lignes ? L2.lignes().length : M.produits.filter(L2.filtre).length; });
   }
   $("#bCopier").addEventListener("click", async () => {
     if (!M) return;
-    const L = LISTES[ongletActif]; const rows = M.produits.filter(L.filtre).map(L.ligne);
+    const L = LISTES[ongletActif]; const rows = L.lignes ? L.lignes().map((x) => x.r) : M.produits.filter(L.filtre).map(L.ligne);
     const tsv = [L.cols, ...rows, L.total(rows)].map((r) => r.map((v) => String(v ?? "").replace(/\t|\n/g, " ")).join("\t")).join("\n");
     try { await navigator.clipboard.writeText(tsv); toast(`« ${L.titre} » copié : collez dans Excel (Ctrl+V).`); }
     catch { const ta = $("#secours"); ta.hidden = false; ta.value = tsv; ta.select(); toast("Copie bloquée : le tableau est sélectionné, faites Ctrl+C."); }
@@ -582,7 +625,7 @@ const RESERVEE_CONCEPTEUR = true;
     M = m; nomFichier = nom;
     Object.assign(etat, { cache: new Set(), caches: new Set(), isole: null, sel: null, coupe: null, pts: [] });
     if (etat.mesure) basculerMesure(false);
-    $("#axeCoupe").value = ""; $("#hauteur").disabled = true; $("#bDxf").disabled = true; $("#valCoupe").textContent = "—";
+    $("#axeCoupe").value = ""; $("#hauteur").disabled = true; etat.face = null; FAC = null; ANGLE = IFC.orientation(M); majDxf(); $("#valCoupe").textContent = "—";
     $("#accueil").hidden = true; $("#bCopier").disabled = false; $("#bStep").disabled = false;
     construire(); arbre(); onglet(ongletActif); afficherProps(); majOutils();
     $("#fichier").textContent = nom; document.title = `${nom} — Maquette`;
@@ -603,7 +646,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.4", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.5", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     w.onmessage = (e) => {
       if (e.data.prog != null) { $("#chargementTxt").textContent = `Lecture de ${nom}… ${Math.round(e.data.prog * 100)} %`; return; }
       w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier : ${e.data.err}`);

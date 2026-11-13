@@ -1,5 +1,5 @@
 // Maquette : lecture du fichier IFC en arriere-plan, pour que la page reste fluide pendant le calcul.
-import IFC from "./core.js?v=1.4";
+import IFC from "./core.js?v=1.5";
 self.onmessage = async (e) => {
   try {
     const src = e.data;

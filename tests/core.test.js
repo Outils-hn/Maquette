@@ -267,3 +267,45 @@ test("geometrie compacte : simple precision relative, sans perte au 1/100 mm loi
   // coordonnees suisses (2 600 000 m) : la longueur du mur reste exacte
   assert.ok(Math.abs(Math.max(...xs) - Math.min(...xs) - 5) < 1e-5, String(Math.max(...xs) - Math.min(...xs)));
 });
+
+test("facades : mur exterieur et ouvertures de chaque face, metre", () => {
+  const F = IFC.facades(M, 0);
+  assert.deepEqual(F.a.murs.map((i) => M.produits[i].nom), ["Wall_Left"]);
+  assert.deepEqual(F.c.murs.map((i) => M.produits[i].nom), ["Wall_Right"]);
+  assert.equal(F.a.ouvertures.length, 4);
+  assert.ok(Math.abs(F.a.metre.brute - 33.6) < 1e-6);
+  assert.equal(F.a.metre.fenetres + F.a.metre.portes, 4);
+  const o = F.a.ouvertures.find((x) => x.nom === "Win_Living_L");
+  assert.equal(o.largeur, 2400); assert.equal(o.allege, 800);
+  // tableaux = 2 x hauteur par ouverture
+  assert.ok(Math.abs(F.a.metre.tableaux - F.a.ouvertures.reduce((s, x) => s + (2 * x.hauteur) / 1000, 0)) < 1e-9);
+  // pas de mur compte sur deux faces
+  const vus = Object.values(F).flatMap((f) => f.murs); assert.equal(new Set(vus).size, vus.length);
+});
+
+test("elevation cotee : traits, cotes, dimensions des ouvertures et niveaux dans le DXF", () => {
+  const F = IFC.facades(M, 0), e = IFC.elevation(M, F.a);
+  assert.ok(e.segs.some((s) => s.calque === "MUR") && e.segs.some((s) => s.calque === "COTES") && e.segs.some((s) => s.calque === "NIVEAUX"));
+  assert.ok(e.textes.some((t) => t.txt === "2400 x 1500") && e.textes.some((t) => t.txt === "all. 800"));
+  assert.ok(e.textes.some((t) => t.txt === "10500"), "cote totale de la facade");
+  const d = IFC.dxf(e.segs, "Face A", e.textes);
+  assert.match(d, /IFC-COTES/); assert.match(d, /\r\n72\r\n1\r\n/); assert.match(d, /EOF\r\n$/);
+  // sans cotes : seulement les traits
+  assert.ok(!IFC.elevation(M, F.a, false).segs.some((s) => s.calque === "COTES"));
+});
+
+test("batiment tourne : orientation detectee, memes facades", () => {
+  const R = IFC.build(readFileSync(new URL("../exemples/TinyHouse.ifc", import.meta.url), "utf8"));
+  const t = (30 * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+  for (const p of R.produits) {
+    for (const m of p.morceaux) { const o = m.o; for (const A of [m.T, m.A]) for (let i = 0; i < A.length; i += 3) { const x = A[i] + o[0], y = A[i + 1] + o[1]; A[i] = c * x - s * y - o[0]; A[i + 1] = s * x + c * y - o[1]; } }
+    const P = p.morceaux.flatMap((m) => IFC.trisDe(m).flat()); p.bb = IFC.bbox(P);
+  }
+  R.bbTout = IFC.bbox(R.produits.flatMap((p) => [p.bb.min, p.bb.max]));
+  const a = (IFC.orientation(R) * 180) / Math.PI;
+  assert.ok(Math.abs(a - 30) <= 1.5, String(a));
+  const F = IFC.facades(R);
+  assert.deepEqual(F.a.murs.map((i) => R.produits[i].nom), ["Wall_Left"]);
+  assert.equal(F.a.ouvertures.length, 4);
+  assert.ok(Math.abs(F.a.metre.longueur - 10.5) < 0.01, String(F.a.metre.longueur));
+});
