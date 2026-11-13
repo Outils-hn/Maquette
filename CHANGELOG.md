@@ -2,6 +2,12 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.12 — 13 novembre 2026
+
+- Nouveauté : un STEP s'exporte en DXF vue par vue (dessus, dessous, avant, arrière, gauche, droite) : arêtes visibles, arêtes cachées en tirets, trous et arrondis en vrais cercles et arcs avec leur diamètre et leurs axes, dimensions générales et entraxes en option.
+- Nouveauté : la position d'une coupe se règle au dixième de millimètre : tapez la valeur, utilisez les flèches (Maj = 10 mm, Alt = 0,1 mm, Page = 100 mm) ou les boutons − et +.
+- Nouveauté : tout chiffre calculé par Maquette (listes, fiches, cotes des DXF) porte la mention « à contrôler », y compris dans les fichiers DXF.
+
 ## 1.11 — 13 novembre 2026
 
 - Nouveauté : ouverture des fichiers STEP (.stp, .step), pièces fournisseurs et assemblages. 3D avec couleurs et arêtes, sous-ensembles dans le contenu, fiche de chaque pièce (dimensions, surface, volume), mesures, coupes et DXF, comme pour une maquette IFC. Le fichier reste sur votre ordinateur : le lecteur tourne dans une boîte sans accès à Internet.
