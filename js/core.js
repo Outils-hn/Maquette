@@ -143,6 +143,7 @@ const IFC = (() => {
     constructor(polys) { this.pl = null; this.f = null; this.b = null; this.polys = []; if (polys) this.build(polys); }
     inverser() { const pile = [this]; while (pile.length) { const n = pile.pop(); for (const p of n.polys) { p.v.reverse(); p.pl = { n: p.pl.n.map((x) => -x), w: -p.pl.w }; } if (n.pl) n.pl = { n: n.pl.n.map((x) => -x), w: -n.pl.w }; [n.f, n.b] = [n.b, n.f]; if (n.f) pile.push(n.f); if (n.b) pile.push(n.b); } }
     clipPolys(polys) {
+      tropLong();
       if (!this.pl) return polys.slice();
       let f = [], b = []; for (const p of polys) couperPoly(this.pl, p, f, b, f, b);
       if (this.f) f = this.f.clipPolys(f);
@@ -154,7 +155,7 @@ const IFC = (() => {
     build(polys) {
       const pile = [[this, polys]];
       while (pile.length) {
-        const [n, P] = pile.pop(); if (!P.length) continue;
+        const [n, P] = pile.pop(); if (!P.length) continue; tropLong();
         if (!n.pl) n.pl = P[0].pl;
         const f = [], b = []; for (const p of P) couperPoly(n.pl, p, n.polys, n.polys, f, b);
         if (f.length) { if (!n.f) n.f = new Noeud(); pile.push([n.f, f]); }
@@ -222,7 +223,9 @@ const IFC = (() => {
   const versPolys = (tris) => tris.map((t) => { const pl = plDe(t[0], t[1], t[2]); return pl ? { v: t.map((p) => p.slice()), pl } : null; }).filter(Boolean);
   // trous : solides convexes ; ceux qui ne se touchent pas sont soustraits ensemble (une passe au lieu d'une par trou)
   // limite de temps de l'element en cours (fixee par build) : au-dela, ses ouvertures restent non decoupees
-  let limiteEl = Infinity;
+  let limiteEl = Infinity, compteTemps = 0;
+  // verifie la limite toutes les quelques milliers d'operations, meme au milieu d'un long calcul
+  const tropLong = () => { if ((++compteTemps & 1023) === 0 && Date.now() > limiteEl) throw new Error("TROP_LONG"); };
   function soustraire(tris, trous) {
     let A = new Noeud(versPolys(orienter(tris)));
     const lots = [];
@@ -382,7 +385,13 @@ const IFC = (() => {
     const etageDe = new Map(), materiauDe = new Map(), psetsDe = new Map(), ouverturesDe = new Map(), murDeOuverture = new Map(), remplit = new Map(), parentDe = new Map();
     const etages = [];
     for (const e of ents.deType("IFCBUILDINGSTOREY", "IFCRELCONTAINEDINSPATIALSTRUCTURE", "IFCRELAGGREGATES", "IFCRELVOIDSELEMENT", "IFCRELFILLSELEMENT", "IFCRELASSOCIATESMATERIAL", "IFCRELDEFINESBYPROPERTIES")) {
-      if (e.type === "IFCBUILDINGSTOREY") etages.push({ id: e.id, nom: str(e.a[2]) || "Étage", elev: (num(e.a[9]) || 0) * k });
+      if (e.type === "IFCBUILDINGSTOREY") {
+        // elev : altitude annoncee par l'architecte (affichee) ; z : position reelle dans la maquette
+        // (souvent identique, mais une maquette placee a l'altitude reelle decale tout de plusieurs centaines de metres)
+        const elev = (num(e.a[9]) || 0) * k; let z = elev;
+        try { const pz = tp(localPlacement(e.a[5]), [0, 0, 0])[2]; z = Math.abs(pz) < 1e-6 && elev !== 0 ? elev : pz; } catch (err) { /* placement illisible : altitude annoncee */ }
+        etages.push({ id: e.id, nom: str(e.a[2]) || "Étage", elev, z });
+      }
       else if (e.type === "IFCRELCONTAINEDINSPATIALSTRUCTURE") for (const r of e.a[4] || []) etageDe.set(r.r, e.a[5].r);
       else if (e.type === "IFCRELAGGREGATES") for (const r of e.a[5] || []) parentDe.set(r.r, e.a[4].r);
       else if (e.type === "IFCRELVOIDSELEMENT") { const w = e.a[4].r; if (!ouverturesDe.has(w)) ouverturesDe.set(w, []); ouverturesDe.get(w).push(e.a[5].r); murDeOuverture.set(e.a[5].r, w); }
@@ -862,6 +871,7 @@ const IFC = (() => {
     }
     const projet = ents.deType("IFCPROJECT").next().value;
     const app = ents.deType("IFCAPPLICATION").next().value;
+    limiteEl = Infinity; // hors lecture (export STEP, coupes) : pas de limite
     return {
       schema, produits, etages, avertissements: [...avertissements],
       projet: projet ? str(projet.a[2]) || "Sans nom" : "Sans nom",
@@ -1100,7 +1110,7 @@ const IFC = (() => {
         ouvertures.push({
           i, nom: p.nom, porte: p.ifc === "IFCDOOR", u0: b.u0, u1: b.u1, z0: b.z0, z1: b.z1,
           largeur: p.largeur || Math.round((b.u1 - b.u0) * 1000), hauteur: p.hauteur || Math.round((b.z1 - b.z0) * 1000),
-          allege: et ? Math.round((b.z0 - et.elev) * 1000) : null, etage: p.etage,
+          allege: et ? Math.round((b.z0 - et.z) * 1000) : null, etage: p.etage,
         });
       });
       if (!ext.length) { out[cle] = { cle, nom: F.nom, F, angle: t, murs: [], ouvertures: [], metre: null }; continue; }
@@ -1152,9 +1162,9 @@ const IFC = (() => {
     }
     // niveaux des etages, a gauche de la facade
     for (const e of model.etages) {
-      if (e.elev < fac.z0 - 0.5 || e.elev > fac.z1 + 0.5) continue;
-      traits.push({ a: [fac.u0 - 1.6, e.elev], b: [fac.u0 - 0.05, e.elev], calque: "NIVEAUX" });
-      textes.push({ p: [fac.u0 - 0.85, e.elev + 0.05], txt: `${e.elev >= 0 ? "+" : ""}${e.elev.toFixed(3)} ${e.nom}`, h: 80, calque: "NIVEAUX", centre: true });
+      if (e.z < fac.z0 - 0.5 || e.z > fac.z1 + 0.5) continue;
+      traits.push({ a: [fac.u0 - 1.6, e.z], b: [fac.u0 - 0.05, e.z], calque: "NIVEAUX" });
+      textes.push({ p: [fac.u0 - 0.85, e.z + 0.05], txt: `${e.elev >= 0 ? "+" : ""}${e.elev.toFixed(3)} ${e.nom}`, h: 80, calque: "NIVEAUX", centre: true });
     }
     return { segs: traits, textes };
   }
@@ -1177,6 +1187,7 @@ const IFC = (() => {
     }
     const out = [];
     for (const { n, tris: T } of plans.values()) {
+      tropLong();
       if (T.length === 1) { out.push({ boucles: [T[0]] }); continue; }
       const pts = new Map(), aretes = new Map();
       for (const t of T) for (const q of t) pts.set(cle3(q), q);

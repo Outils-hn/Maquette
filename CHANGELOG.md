@@ -2,6 +2,13 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.9 — 13 novembre 2026
+
+- Nouveauté : disposition « Atelier ». La 3D prend toute la place ; un rail d'icônes à gauche ouvre le contenu, la recherche ou les remarques ; la fiche s'ouvre quand on sélectionne un élément ; les listes se replient en bas. Tous les panneaux s'élargissent en tirant leur bord (double-clic pour replier), et les tailles sont gardées.
+- Nouveauté : recherche d'éléments par nom, type, étage, matériau ou identifiant (touche « / »).
+- Barre d'outils de la 3D compacte, en icônes, sur une seule ligne.
+- Corrigé : allège fausse (plusieurs centaines de mètres) sur les maquettes placées à leur altitude réelle ; certains murs complexes pouvaient encore bloquer la lecture.
+
 ## 1.8 — 13 novembre 2026
 
 - Nouveauté : l'appli occupe toute la fenêtre, avec un bouton plein écran ; le contenu, la fiche de l'élément et les listes se replient d'un clic (choix gardé sur le poste).
