@@ -370,3 +370,8 @@ body.redim.h, body.redim.h * { cursor: row-resize !important; }
   .coupe input[type=range] { flex: 1; width: 70px; min-width: 50px; }
   .coupe output { min-width: 0; }
 }
+/* signature : comme les autres applis, sans soulignement (souligne au survol) */
+footer a, footer button { text-decoration: none; text-underline-offset: 2px; transition: color .15s; }
+footer a:hover, footer button:hover { color: var(--ink); text-decoration: underline; }
+/* barre d'outils 3D centree en haut de la vue */
+@media (min-width: 901px) { .outils { left: 50%; right: auto; transform: translateX(-50%); justify-content: center; } }

@@ -1,5 +1,5 @@
 // Maquette : lecture du fichier IFC en arriere-plan, pour que la page reste fluide pendant le calcul.
-import IFC from "./core.js?v=1.9";
+import IFC from "./core.js?v=1.10";
 self.onmessage = async (e) => {
   try {
     const { src, ignorer } = typeof e.data === "string" || e.data instanceof Blob ? { src: e.data, ignorer: [] } : e.data;
