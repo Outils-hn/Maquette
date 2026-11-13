@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.13";
+import IFC from "./core.js?v=1.14";
 
-const VERSION = "1.13";
+const VERSION = "1.14";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -299,7 +299,9 @@ const RESERVEE_CONCEPTEUR = true;
     let snap = null, sd = 12;
     for (const q of [best.a, best.b, best.c]) { const s = versEcran(q, R); const dd = Math.hypot(s[0] - px, s[1] - py); if (dd < sd) { sd = dd; snap = q; } }
     if (snap) p = snap;
-    return { pi: best.t.p, p, accroche: !!snap };
+    // normale de la face visee, tournee vers l'observateur (= vers l'exterieur de la piece)
+    const nf = nrm(crs([best.b[0] - best.a[0], best.b[1] - best.a[1], best.b[2] - best.a[2]], [best.c[0] - best.a[0], best.c[1] - best.a[1], best.c[2] - best.a[2]])), n = dt(nf, d) > 0 ? nf.map((x) => -x) : nf;
+    return { pi: best.t.p, p, accroche: !!snap, n };
   }
 
   // ---------- Vues ----------
@@ -389,6 +391,7 @@ const RESERVEE_CONCEPTEUR = true;
   function cliquer(x, y) {
     if (!M) return;
     const h = viser(x, y);
+    if (etat.poser) { if (!h) return; basculerPoser(false); appliquerOrientation(IFC.matricePoser(h.n)); toast("Face posée en dessous. Vous pouvez affiner avec les rotations."); return; }
     if (etat.mesure) {
       if (!h) return;
       if (etat.pts.length >= 2) etat.pts = [];
@@ -658,12 +661,12 @@ const RESERVEE_CONCEPTEUR = true;
     catch { const ta = $("#secours"); ta.hidden = false; ta.value = dxfTexte; dD.close(); ta.select(); toast("Copie bloquée : le texte est sélectionné en bas, faites Ctrl+C."); }
   });
   $("#bMesure").addEventListener("click", () => basculerMesure());
-  function basculerMesure(on = !etat.mesure) { etat.mesure = on; etat.pts = []; $("#bMesure").setAttribute("aria-pressed", String(on)); cv.classList.toggle("viseur", on); afficherProps(); redessiner(); }
+  function basculerMesure(on = !etat.mesure) { if (on) basculerPoser(false); etat.mesure = on; etat.pts = []; $("#bMesure").setAttribute("aria-pressed", String(on)); cv.classList.toggle("viseur", on); afficherProps(); redessiner(); }
   $("#bTout").addEventListener("click", () => { etat.isole = null; etat.cache.clear(); etat.caches.clear(); poserCoupe(null); arbre(); majOutils(); afficherProps(); vue("3d"); });
   function majOutils() { $("#bTout").classList.toggle("actif", !!etat.isole); }
   document.addEventListener("keydown", (e) => {
     if (e.target.matches("input, textarea, select") || document.querySelector("dialog[open]")) return;
-    if (e.key === "Escape") { if (etat.mesure) basculerMesure(false); else choisir(null); }
+    if (e.key === "Escape") { if (etat.poser) basculerPoser(false); else if (etat.mesure) basculerMesure(false); else choisir(null); }
     if (!M || document.querySelector("dialog[open]")) return;
     if (e.key === "m" || e.key === "M") basculerMesure();
     if (e.key === "f" || e.key === "F") etat.sel != null ? cadrerSur(etat.sel) : cadrer();
@@ -820,6 +823,7 @@ const RESERVEE_CONCEPTEUR = true;
     M = m; nomFichier = nom;
     Object.assign(etat, { cache: new Set(), caches: new Set(), isole: null, sel: null, coupe: null, pts: [] });
     if (etat.mesure) basculerMesure(false);
+    etat.poser = false; $("#oPoser").setAttribute("aria-pressed", "false"); cv.classList.remove("viseur");
     $("#axeCoupe").value = ""; $("#hauteur").disabled = true; etat.face = null; FAC = null; etat.vue2d = null; const estStep = m.source === "step"; ANGLE = estStep ? 0 : IFC.orientation(M); majDxf(); majPos();
     // fichier STEP : pas de murs ni de fenetres ; les sous-ensembles remplacent les etages ; l'export STEP n'a pas de sens
     const LIB = { plan: ["Plan", "Vue en plan (de dessus)"], a: ["A", "Élévation Face A"], b: ["B", "Élévation Face B"], c: ["C", "Élévation Face C"], d: ["D", "Élévation Face D"] };
@@ -829,6 +833,7 @@ const RESERVEE_CONCEPTEUR = true;
     $('[data-onglet="ecarts"]').hidden = !m.comparaison;
     if (m.comparaison) ongletActif = "ecarts"; else if (estStep) ongletActif = "tout"; else if (ongletActif === "tout" || ongletActif === "ecarts") ongletActif = "fen";
     $("#bCompare").disabled = false;
+    $("#bOrienter").hidden = !estStep || !!m.comparaison; $("#panOrient").hidden = true; $("#bOrienter").setAttribute("aria-expanded", "false"); majOrient();
     $("#bStep").title = estStep ? "Cette maquette est déjà un fichier STEP" : "Exporter des éléments en STEP pour AutoCAD ou un logiciel 3D";
     $("#accueil").hidden = true; $("#bCopier").disabled = false; $("#bStep").disabled = estStep;
     construire(); arbre(); onglet(ongletActif); afficherProps(); majOutils();
@@ -855,7 +860,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.13", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.14", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     let dernier = null, attente = false, tDernier = Date.now();
     // garde-fou : un element dont le calcul bloque plus de 30 s est ignore, et la lecture repart sans lui
     veille = setInterval(() => {
@@ -884,12 +889,12 @@ const RESERVEE_CONCEPTEUR = true;
     const fin = () => { $("#chargement").hidden = true; };
     let res;
     try {
-      const { lireStep } = await import("./step.js?v=1.13");
+      const { lireStep } = await import("./step.js?v=1.14");
       res = await lireStep(f, (t) => { $("#chargementTxt").textContent = `${nom} · ${t}…`; });
     } catch (err) { fin(); toast(`Impossible de lire ce fichier STEP : ${err.message}`); return; }
     $("#chargementTxt").textContent = `${nom} · Conversion de la géométrie…`;
     const direct = () => setTimeout(() => { try { afficherModele(IFC.depuisStep(res, { nom }), nom, performance.now() - t0); } catch (err) { toast(`Impossible de lire ce fichier STEP : ${err.message}`); } fin(); }, 30);
-    let w; try { w = new Worker(new URL("./worker.js?v=1.13", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    let w; try { w = new Worker(new URL("./worker.js?v=1.14", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     w.onmessage = (e) => { if (e.data.prog != null) return; w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier STEP : ${e.data.err}`); };
     w.onerror = (e) => { e.preventDefault(); w.terminate(); fin(); toast("Impossible de convertir ce fichier STEP (le calcul en arrière-plan a échoué)."); }; // les tableaux ont ete transferes : pas de reprise directe
     w.postMessage({ step: res, nom }, res.meshes.flatMap((m) => [m.pos.buffer, m.idx.buffer]));
@@ -901,6 +906,36 @@ const RESERVEE_CONCEPTEUR = true;
     if (!/\.(ifc|ifczip|zip)$/i.test(f.name)) { toast("Choisissez un fichier .ifc, .ifczip ou .stp (les fichiers Revit .rvt ne s'ouvrent pas : demandez l'export IFC)."); return; }
     lire(f, f.name);
   }
+  // ---------- Orientation d'un STEP : poser sur une face, rotations de 90 degres, angle precis ; reversible ----------
+  function majOrient() {
+    const id = !M || IFC.estIdentite(M.rot);
+    $("#oAnnuler").disabled = id; $("#bOrienter").classList.toggle("actif", !id);
+  }
+  function appliquerOrientation(R) {
+    if (!M || M.source !== "step") return;
+    IFC.pivoter(M, R);
+    if (etat.coupe) poserCoupe(null);
+    FAC = null; indexRech = null; construire(); onglet(ongletActif); afficherProps(); cadrer(); majOrient();
+  }
+  function basculerPoser(on = !etat.poser) {
+    if (on && etat.mesure) basculerMesure(false);
+    etat.poser = on; $("#oPoser").setAttribute("aria-pressed", String(on)); cv.classList.toggle("viseur", on);
+    $("#oAide").textContent = on ? "Cliquez maintenant la face du modèle qui doit devenir le dessous (Échap pour annuler)." : "Cliquez la face du modèle qui doit devenir le dessous.";
+  }
+  function panneauOrient(on) { $("#panOrient").hidden = !on; $("#bOrienter").setAttribute("aria-expanded", String(on)); if (!on) basculerPoser(false); }
+  $("#bOrienter").addEventListener("click", () => panneauOrient($("#panOrient").hidden));
+  $("#oFermer").addEventListener("click", () => panneauOrient(false));
+  $("#oPoser").addEventListener("click", () => basculerPoser());
+  $("#panOrient").addEventListener("click", (e) => { const b = e.target.closest("[data-rot]"); if (!b) return; const [axe, deg] = b.dataset.rot.split(":"); appliquerOrientation(IFC.matriceAxe(axe, +deg)); });
+  const degSaisis = () => parseFloat($("#oDeg").value.replace(/[\s'’]/g, "").replace(",", "."));
+  function appliquerAngle() { const d = degSaisis(); if (!isFinite(d)) { toast("Tapez un angle en degrés (par exemple 15 ou −7,5)."); return; } appliquerOrientation(IFC.matriceAxe($("#oAxe").value, d)); }
+  $("#oAppl").addEventListener("click", appliquerAngle);
+  $("#oDeg").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); appliquerAngle(); }
+    else if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); appliquerOrientation(IFC.matriceAxe($("#oAxe").value, (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 15 : e.altKey ? 0.1 : 1))); }
+    else if (e.key === "Escape") { panneauOrient(false); }
+  });
+  $("#oAnnuler").addEventListener("click", () => { if (!M) return; IFC.annulerPivot(M); if (etat.coupe) poserCoupe(null); FAC = null; indexRech = null; construire(); onglet(ongletActif); afficherProps(); cadrer(); majOrient(); toast("Orientation d'origine rétablie."); });
   // ---------- Comparaison de deux versions : le fichier ouvert = ancienne version, le fichier choisi = nouvelle version ----------
   function lancerComparaison(A, nomA, B, nomB) {
     if (!B.produits.length) { toast("Aucun élément 3D dans le fichier à comparer."); return; }
@@ -950,7 +985,7 @@ const RESERVEE_CONCEPTEUR = true;
   new MutationObserver(envoyer).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   dimensionner();
-  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.13")).testerBoite(cible) };
+  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.14")).testerBoite(cible) };
 
 
 // ======================= Bandeau commun de la famille =======================
