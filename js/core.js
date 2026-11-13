@@ -221,8 +221,9 @@ const IFC = (() => {
   }
   const versPolys = (tris) => tris.map((t) => { const pl = plDe(t[0], t[1], t[2]); return pl ? { v: t.map((p) => p.slice()), pl } : null; }).filter(Boolean);
   // trous : solides convexes ; ceux qui ne se touchent pas sont soustraits ensemble (une passe au lieu d'une par trou)
-  function soustraire(tris, trous, budgetMs = 4000) {
-    const t0 = Date.now();
+  // limite de temps de l'element en cours (fixee par build) : au-dela, ses ouvertures restent non decoupees
+  let limiteEl = Infinity;
+  function soustraire(tris, trous) {
     let A = new Noeud(versPolys(orienter(tris)));
     const lots = [];
     for (const h of trous) {
@@ -233,7 +234,7 @@ const IFC = (() => {
     }
     soustraire.complet = true;
     for (const L of lots) {
-      if (Date.now() - t0 > budgetMs) { soustraire.complet = false; break; }
+      if (Date.now() > limiteEl) { soustraire.complet = false; break; }
       const B = new Noeud(versPolys(L.tris));
       A.inverser(); A.clipTo(B); B.clipTo(A); B.inverser(); B.clipTo(A); B.inverser(); A.build(B.tous()); A.inverser();
       A = new Noeud(A.tous());
@@ -645,7 +646,7 @@ const IFC = (() => {
         const H = hull(pts); if (H.length >= 3) trous.push(H);
       }
       let pieces = [rect];
-      for (const H of trous) pieces = pieces.flatMap((P) => subtractConvex(P, H));
+      for (const H of trous) { if (Date.now() > limiteEl) return null; pieces = pieces.flatMap((P) => subtractConvex(P, H)); }
       const tris = [], ar = [];
       for (const P of pieces) for (let i = 1; i < P.length - 1; i++) { tris.push([vers3D(P[0][0], P[0][1], 0), vers3D(P[i][0], P[i][1], 0), vers3D(P[i + 1][0], P[i + 1][1], 0)]); tris.push([vers3D(P[0][0], P[0][1], T), vers3D(P[i][0], P[i][1], T), vers3D(P[i + 1][0], P[i + 1][1], T)]); }
       // Contour de la region (bords du mur + bords des ouvertures), extrude dans l'epaisseur
@@ -654,6 +655,7 @@ const IFC = (() => {
       ajoute(rect); for (const H of trous) { const c = clipToRect(H, L, h); if (c) ajoute(c); }
       const dedans = (q) => q[0] > 1e-7 && q[0] < L - 1e-7 && q[1] > 1e-7 && q[1] < h - 1e-7 && !trous.some((H) => insideConvex(H, q, 1e-9));
       for (const [a, b] of segs) {
+        if (Date.now() > limiteEl) return null;
         const ts = [0, 1];
         for (const [c, d] of segs) { const r = interT(a, b, c, d); if (r != null) ts.push(r); }
         ts.sort((x, y) => x - y);
@@ -768,6 +770,7 @@ const IFC = (() => {
       const out = [], faces = [];
       try {
         for (const g of groupes.values()) {
+          if (Date.now() > limiteEl) return null;
           const tris = soustraire(g.flatMap((m) => m.tris), utiles);
           if (!soustraire.complet) avertissements.add("Ouvertures non découpées dans certains éléments (forme complexe)");
           if (!tris.length) continue;
@@ -795,9 +798,9 @@ const IFC = (() => {
     const geomOuv = new Map();
     for (const id of ignorer) { const e = ents.get(id); avertissements.add(`Élément ignoré car son calcul bloquait : #${id}${e ? ` (${str(e.a[2]) || e.type})` : ""}`); }
     let nbO = 0;
-    for (const e of ents.deType("IFCOPENINGELEMENT")) { if (ignorer.has(e.id)) continue; if (prog) prog(0, `Ouvertures (${++nbO}) · #${e.id}`); geomOuv.set(e.id, geomProduit(e)); }
+    for (const e of ents.deType("IFCOPENINGELEMENT")) { if (ignorer.has(e.id)) continue; if (prog) prog(0, `Ouvertures (${++nbO}) · #${e.id}`); limiteEl = Date.now() + 6000; geomOuv.set(e.id, geomProduit(e)); }
     for (const e of ents.candidats()) {
-      const tEl = Date.now();
+      const tEl = Date.now(); limiteEl = tEl + 6000;
       if (PAS_DESSINES.has(e.type) || !e.a || !e.a[6] || ignorer.has(e.id)) continue;
       if (prog) prog(ents.pos / ents.size, `Éléments (${++nbProd}) · #${e.id}`);
       if (PAS_DESSINES.has(e.type)) continue;
@@ -808,7 +811,8 @@ const IFC = (() => {
       const p = { id: e.id, ifc: e.type, type: fr, nom: str(e.a[2]) || fr, gid: str(e.a[0]), desc: str(e.a[3]), objType: str(e.a[4]), etage: etageId(e.id), materiau: materiauDe.has(e.id) ? nomMateriau(materiauDe.get(e.id)) : "", psets: psets(e.id), mur: null };
       if (/^IFCWALL/.test(e.type) && ouverturesDe.has(e.id) && morceaux.length === 1 && morceaux[0].boite) {
         const r = murPerce(morceaux[0], ouverturesDe.get(e.id).map((o) => geomOuv.get(o) || []));
-        r.morceau.coupes = morceaux[0].coupes; morceaux = [r.morceau]; p.surf = { L: r.L, h: r.h, T: r.T, brute: r.brute, nette: r.nette, trous: r.nbTrous };
+        if (r) { r.morceau.coupes = morceaux[0].coupes; morceaux = [r.morceau]; p.surf = { L: r.L, h: r.h, T: r.T, brute: r.brute, nette: r.nette, trous: r.nbTrous }; }
+        else avertissements.add("Ouvertures non découpées dans certains éléments (forme complexe)");
       } else if (ouverturesDe.has(e.id)) {
         const r = percerSolide(morceaux, ouverturesDe.get(e.id).map((o) => geomOuv.get(o) || []));
         if (r) { morceaux = r.morceaux; if (/^IFCWALL/.test(e.type) && r.surf) p.surf = r.surf; }
