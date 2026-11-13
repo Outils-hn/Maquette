@@ -96,9 +96,120 @@ const IFC = (() => {
   }
   const insideConvex = (P, q, eps = 1e-7) => { for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length]; if ((b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]) <= eps) return false; } return true; };
 
+
+  // ---------- Soustraction de solides (arbre BSP, methode classique de csg.js) ----------
+  // Sert a percer les ouvertures dans les formes qui ne sont pas des boites (murs en onglet, dalles, faces libres).
+  const CSG_EPS = 1e-6;
+  function plDe(a, b, c) { const n = norm(cross(sub(b, a), sub(c, a))); return isFinite(n[0]) ? { n, w: dot(n, a) } : null; }
+  function couperPoly(pl, poly, copF, copB, F, Bk) {
+    let type = 0; const types = poly.v.map((p) => { const t = dot(pl.n, p) - pl.w, ty = t < -CSG_EPS ? 2 : t > CSG_EPS ? 1 : 0; type |= ty; return ty; });
+    if (type === 0) (dot(pl.n, poly.pl.n) > 0 ? copF : copB).push(poly);
+    else if (type === 1) F.push(poly);
+    else if (type === 2) Bk.push(poly);
+    else {
+      const f = [], b = [];
+      for (let i = 0; i < poly.v.length; i++) {
+        const j = (i + 1) % poly.v.length, ti = types[i], tj = types[j], vi = poly.v[i], vj = poly.v[j];
+        if (ti !== 2) f.push(vi); if (ti !== 1) b.push(vi);
+        if ((ti | tj) === 3) { const t = (pl.w - dot(pl.n, vi)) / dot(pl.n, sub(vj, vi)); const v = [vi[0] + (vj[0] - vi[0]) * t, vi[1] + (vj[1] - vi[1]) * t, vi[2] + (vj[2] - vi[2]) * t]; f.push(v); b.push(v); }
+      }
+      if (f.length >= 3) F.push({ v: f, pl: poly.pl }); if (b.length >= 3) Bk.push({ v: b, pl: poly.pl });
+    }
+  }
+  class Noeud {
+    constructor(polys) { this.pl = null; this.f = null; this.b = null; this.polys = []; if (polys) this.build(polys); }
+    inverser() { const pile = [this]; while (pile.length) { const n = pile.pop(); for (const p of n.polys) { p.v.reverse(); p.pl = { n: p.pl.n.map((x) => -x), w: -p.pl.w }; } if (n.pl) n.pl = { n: n.pl.n.map((x) => -x), w: -n.pl.w }; [n.f, n.b] = [n.b, n.f]; if (n.f) pile.push(n.f); if (n.b) pile.push(n.b); } }
+    clipPolys(polys) {
+      if (!this.pl) return polys.slice();
+      let f = [], b = []; for (const p of polys) couperPoly(this.pl, p, f, b, f, b);
+      if (this.f) f = this.f.clipPolys(f);
+      b = this.b ? this.b.clipPolys(b) : [];
+      return f.concat(b);
+    }
+    clipTo(bsp) { const pile = [this]; while (pile.length) { const n = pile.pop(); n.polys = bsp.clipPolys(n.polys); if (n.f) pile.push(n.f); if (n.b) pile.push(n.b); } }
+    tous() { const out = [], pile = [this]; while (pile.length) { const n = pile.pop(); out.push(...n.polys); if (n.f) pile.push(n.f); if (n.b) pile.push(n.b); } return out; }
+    build(polys) {
+      const pile = [[this, polys]];
+      while (pile.length) {
+        const [n, P] = pile.pop(); if (!P.length) continue;
+        if (!n.pl) n.pl = P[0].pl;
+        const f = [], b = []; for (const p of P) couperPoly(n.pl, p, n.polys, n.polys, f, b);
+        if (f.length) { if (!n.f) n.f = new Noeud(); pile.push([n.f, f]); }
+        if (b.length) { if (!n.b) n.b = new Noeud(); pile.push([n.b, b]); }
+      }
+    }
+  }
+  // Faces orientees de facon coherente puis vers l'exterieur (la soustraction en a besoin)
+  function orienter(tris, parComposante = false) {
+    const cle = (p) => p.map((v) => Math.round(v * 1e5)).join(","), T = tris.map((t) => t.slice()), K = T.map((t) => t.map(cle)), ar = new Map();
+    K.forEach((k, i) => { for (let j = 0; j < 3; j++) { const a = k[j], b = k[(j + 1) % 3], kk = a < b ? a + "|" + b : b + "|" + a; if (!ar.has(kk)) ar.set(kk, []); ar.get(kk).push(i); } });
+    const vu = new Uint8Array(T.length);
+    for (let s0 = 0; s0 < T.length; s0++) {
+      if (vu[s0]) continue; vu[s0] = 1; const comp = [s0], pile = [s0];
+      while (pile.length) {
+        const i = pile.pop(), k = K[i];
+        for (let j = 0; j < 3; j++) {
+          const a = k[j], b = k[(j + 1) % 3];
+          const vois = ar.get(a < b ? a + "|" + b : b + "|" + a); if (vois.length !== 2) continue;
+          for (const n of vois) {
+            if (vu[n]) continue; vu[n] = 1; comp.push(n); pile.push(n);
+            const kn = K[n], memeSens = [0, 1, 2].some((m) => kn[m] === a && kn[(m + 1) % 3] === b);
+            if (memeSens) { T[n].reverse(); kn.reverse(); }
+          }
+        }
+      }
+      let vol = 0; for (const i of comp) { const [p0, p1, p2] = T[i]; vol += dot(p0, cross(p1, p2)); }
+      if (vol < 0) for (const i of comp) { T[i].reverse(); K[i].reverse(); }
+      if (parComposante) (orienter.comps = orienter.comps || []).push(comp);
+    }
+    if (parComposante) { const C = orienter.comps || []; orienter.comps = null; return C.map((c) => c.map((i) => T[i])); }
+    return T;
+  }
+  // Enveloppe convexe 3D (incrementale) : une ouverture devient un solide ferme et propre
+  function enveloppe3D(points) {
+    const vus = new Map(); for (const p of points) vus.set(p.map((v) => Math.round(v * 1e6)).join(","), p);
+    const P = [...vus.values()]; if (P.length < 4) return [];
+    const eps = 1e-9;
+    let i0 = 0, i1 = -1, i2 = -1, i3 = -1, d = 0;
+    P.forEach((p, i) => { const l = len(sub(p, P[i0])); if (l > d) { d = l; i1 = i; } });
+    if (i1 < 0) return [];
+    d = 0; P.forEach((p, i) => { const l = len(cross(sub(P[i1], P[i0]), sub(p, P[i0]))); if (l > d) { d = l; i2 = i; } });
+    if (i2 < 0 || d < eps) return [];
+    const n0 = cross(sub(P[i1], P[i0]), sub(P[i2], P[i0]));
+    d = 0; P.forEach((p, i) => { const l = Math.abs(dot(n0, sub(p, P[i0]))); if (l > d) { d = l; i3 = i; } });
+    if (i3 < 0 || d < 1e-12) return [];
+    let F = [];
+    const face = (a, b, c) => { const n = cross(sub(P[b], P[a]), sub(P[c], P[a])); return { v: [a, b, c], n, w: dot(n, P[a]) }; };
+    const ajoute = (a, b, c, interieur) => { let f = face(a, b, c); if (dot(f.n, interieur) - f.w > 0) f = face(a, c, b); F.push(f); };
+    const cg = [0, 1, 2].map((k) => (P[i0][k] + P[i1][k] + P[i2][k] + P[i3][k]) / 4);
+    ajoute(i0, i1, i2, cg); ajoute(i0, i1, i3, cg); ajoute(i0, i2, i3, cg); ajoute(i1, i2, i3, cg);
+    P.forEach((p, i) => {
+      if (i === i0 || i === i1 || i === i2 || i === i3) return;
+      const vis = F.filter((f) => dot(f.n, p) - f.w > 1e-12 * Math.max(1, len(f.n)));
+      if (!vis.length) return;
+      const bord = new Map();
+      for (const f of vis) for (let j = 0; j < 3; j++) { const a = f.v[j], b = f.v[(j + 1) % 3], kk = a + "," + b, inv = b + "," + a; if (bord.has(inv)) bord.delete(inv); else bord.set(kk, [a, b]); }
+      F = F.filter((f) => !vis.includes(f));
+      for (const [a, b] of bord.values()) F.push(face(a, b, i));
+    });
+    return F.map((f) => f.v.map((j) => P[j]));
+  }
+  const versPolys = (tris) => tris.map((t) => { const pl = plDe(t[0], t[1], t[2]); return pl ? { v: t.map((p) => p.slice()), pl } : null; }).filter(Boolean);
+  function soustraire(tris, trous) {
+    let A = new Noeud(versPolys(orienter(tris)));
+    for (const h of trous) {
+      const B = new Noeud(versPolys(h));
+      A.inverser(); A.clipTo(B); B.clipTo(A); B.inverser(); B.clipTo(A); B.inverser(); A.build(B.tous()); A.inverser();
+      A = new Noeud(A.tous());
+    }
+    const out = []; for (const p of A.tous()) for (let i = 1; i < p.v.length - 1; i++) out.push([p.v[0], p.v[i], p.v[i + 1]]);
+    return out;
+  }
+
   // Triangulation d'un polygone simple (oreilles), avec trous raccordes par un pont
   function triangulate(outer, holes = []) {
-    let P = outer.slice(); if (area2(P) < 0) P.reverse();
+    let P = outer.slice(); if (P.length < 3) return []; if (area2(P) < 0) P.reverse();
+    holes = holes.filter((h) => h && h.length >= 3);
     for (const h0 of holes.slice().sort((a, b) => Math.max(...b.map((q) => q[0])) - Math.max(...a.map((q) => q[0])))) {
       let h = h0.slice(); if (area2(h) > 0) h.reverse();
       let hi = 0; h.forEach((q, i) => { if (q[0] > h[hi][0]) hi = i; });
@@ -149,9 +260,14 @@ const IFC = (() => {
     IFCSTAIR: "Escalier", IFCSTAIRFLIGHT: "Volée d'escalier", IFCRAMP: "Rampe", IFCRAILING: "Garde-corps", IFCCOLUMN: "Poteau", IFCBEAM: "Poutre", IFCMEMBER: "Profilé",
     IFCPLATE: "Panneau", IFCCOVERING: "Revêtement", IFCFOOTING: "Fondation", IFCBUILDINGELEMENTPROXY: "Élément divers", IFCFURNISHINGELEMENT: "Mobilier", IFCFURNITURE: "Mobilier",
     IFCSHADINGDEVICE: "Protection solaire", IFCCHIMNEY: "Cheminée", IFCFLOWTERMINAL: "Équipement", IFCSPACE: "Pièce",
+    IFCLIGHTFIXTURE: "Luminaire", IFCSYSTEMFURNITUREELEMENT: "Mobilier", IFCSANITARYTERMINAL: "Sanitaire", IFCBUILDINGELEMENTPART: "Partie d'élément", IFCDISCRETEACCESSORY: "Accessoire",
+    IFCMECHANICALFASTENER: "Fixation", IFCPILE: "Pieu", IFCRAMPFLIGHT: "Volée de rampe", IFCTRANSPORTELEMENT: "Ascenseur", IFCGEOGRAPHICELEMENT: "Terrain et végétation", IFCELEMENTASSEMBLY: "Assemblage",
+    IFCFLOWSEGMENT: "Conduit", IFCFLOWFITTING: "Raccord", IFCDUCTSEGMENT: "Gaine", IFCPIPESEGMENT: "Tuyau", IFCAIRTERMINAL: "Bouche d'air", IFCELECTRICAPPLIANCE: "Appareil électrique", IFCOUTLET: "Prise",
+    IFCWALLELEMENTEDCASE: "Mur", IFCSLABSTANDARDCASE: "Dalle", IFCSLABELEMENTEDCASE: "Dalle", IFCBEAMSTANDARDCASE: "Poutre", IFCCOLUMNSTANDARDCASE: "Poteau", IFCMEMBERSTANDARDCASE: "Profilé", IFCPLATESTANDARDCASE: "Panneau", IFCDOORSTANDARDCASE: "Porte", IFCWINDOWSTANDARDCASE: "Fenêtre",
   };
   const COULEURS = { IFCWALL: [0.92, 0.9, 0.86], IFCWALLSTANDARDCASE: [0.92, 0.9, 0.86], IFCSLAB: [0.7, 0.7, 0.68], IFCROOF: [0.35, 0.33, 0.32], IFCWINDOW: [0.55, 0.62, 0.68], IFCDOOR: [0.62, 0.48, 0.34], IFCSTAIR: [0.72, 0.55, 0.35], IFCBUILDINGELEMENTPROXY: [0.5, 0.52, 0.55], IFCCURTAINWALL: [0.6, 0.72, 0.8], IFCPLATE: [0.6, 0.75, 0.85], IFCMEMBER: [0.55, 0.57, 0.6] };
   const VERRE = [0.62, 0.8, 0.92];
+  const COURBES = new Set(["IFCPOLYLINE", "IFCINDEXEDPOLYCURVE", "IFCCOMPOSITECURVE", "IFCTRIMMEDCURVE", "IFCCIRCLE", "IFCLINE", "IFCELLIPSE", "IFCBSPLINECURVEWITHKNOTS", "IFCGEOMETRICCURVESET", "IFCGEOMETRICSET", "IFCCARTESIANPOINT", "IFCTEXTLITERAL", "IFCTEXTLITERALWITHEXTENT", "IFCANNOTATIONFILLAREA", "IFCPOINT"]);
   const PAS_DESSINES = new Set(["IFCOPENINGELEMENT", "IFCSPACE", "IFCSITE", "IFCBUILDING", "IFCBUILDINGSTOREY", "IFCANNOTATION", "IFCGRID", "IFCVIRTUALELEMENT", "IFCPROJECT"]);
 
   function build(text) {
@@ -161,10 +277,21 @@ const IFC = (() => {
     const str = (v) => (v == null ? "" : v.s != null ? v.s : v.v && v.v.s != null ? v.v.s : v.e != null ? v.e : typeof v === "number" ? String(v) : "");
     const avertissements = new Set();
 
-    // Unite de longueur
+    // Unite de longueur : celle de l'IFCUNITASSIGNMENT (Revit declare aussi d'autres unites qui ne servent pas)
     let k = 1;
-    for (const e of ents.values()) if (e.type === "IFCSIUNIT" && str(e.a[1]) === "LENGTHUNIT") { const p = str(e.a[2]); k = p === "MILLI" ? 0.001 : p === "CENTI" ? 0.01 : p === "DECI" ? 0.1 : 1; }
-    for (const e of ents.values()) if (e.type === "IFCCONVERSIONBASEDUNIT" && str(e.a[1]) === "LENGTHUNIT" && /FOOT/i.test(str(e.a[2]))) k = 0.3048;
+    const facteur = (e) => {
+      if (!e) return null;
+      if (e.type === "IFCSIUNIT" && str(e.a[1]) === "LENGTHUNIT") { const p = str(e.a[2]); return p === "MILLI" ? 0.001 : p === "CENTI" ? 0.01 : p === "DECI" ? 0.1 : p === "KILO" ? 1000 : 1; }
+      if (e.type === "IFCCONVERSIONBASEDUNIT" && str(e.a[1]) === "LENGTHUNIT") { const n = str(e.a[2]); return /FOOT|FEET/i.test(n) ? 0.3048 : /INCH/i.test(n) ? 0.0254 : null; }
+      return null;
+    };
+    const assign = [...ents.values()].find((e) => e.type === "IFCUNITASSIGNMENT");
+    const choisi = assign ? (assign.a[0] || []).map((r) => facteur(E(r))).find((f) => f != null) : null;
+    if (choisi != null) k = choisi;
+    else for (const e of ents.values()) { const f = facteur(e); if (f != null) { k = f; break; } }
+    // Unite d'angle (les parametres des arcs de cercle en dependent)
+    let kAng = 1;
+    if (assign) for (const r of assign.a[0] || []) { const u = E(r); if (u && u.type === "IFCCONVERSIONBASEDUNIT" && str(u.a[1]) === "PLANEANGLEUNIT" && /DEG/i.test(str(u.a[2]))) kAng = Math.PI / 180; }
     const pt = (r) => { const e = E(r); return e ? [((e.a[0][0] || 0) * k), ((e.a[0][1] || 0) * k), ((e.a[0][2] || 0) * k)] : [0, 0, 0]; };
     const dir = (r, def) => { const e = E(r); return e ? norm([e.a[0][0] || 0, e.a[0][1] || 0, e.a[0][2] || 0]) : def; };
 
@@ -250,9 +377,42 @@ const IFC = (() => {
         const M2 = mul(M, mul(Mt, placement3D(src.a[0])));
         const rep = E(src.a[1]); for (const it of (rep && rep.a[3]) || []) itemGeom(it, M2, out, c);
       }
-      else if (T === "IFCBOOLEANCLIPPINGRESULT" || T === "IFCBOOLEANRESULT") { itemGeom(e.a[1], M, out, c); avertissements.add("Découpes booléennes simplifiées (forme avant découpe)"); }
+      else if (T === "IFCBOOLEANCLIPPINGRESULT" || T === "IFCBOOLEANRESULT") {
+        // Revit coupe souvent ses murs par un plan (sous une toiture) : on garde la coupe pour l'appliquer apres les ouvertures
+        const op = str(e.a[0]), tmp = []; itemGeom(e.a[1], M, tmp, c);
+        const B = E(e.a[2]), pl = op === "DIFFERENCE" && B ? demiEspace(B, M) : null;
+        if (pl) tmp.forEach((m) => (m.coupes = [...(m.coupes || []), pl]));
+        else if (op === "UNION" && B) itemGeom(e.a[2], M, tmp, c);
+        else avertissements.add("Découpes booléennes simplifiées (forme avant découpe)");
+        out.push(...tmp);
+      }
       else if (T === "IFCCSGSOLID") itemGeom(e.a[0], M, out, c);
-      else avertissements.add("Forme non dessinée : " + T);
+      else if (T === "IFCREVOLVEDAREASOLID") revolution(e, M, out, c);
+      else if (!COURBES.has(T)) avertissements.add("Forme non dessinée : " + T);
+    }
+    // Demi-espace d'une soustraction : plan (origine, normale vers la matiere gardee), borne eventuelle
+    function demiEspace(B, M) {
+      if (!/HALFSPACESOLID$|BOUNDEDHALFSPACE$/.test(B.type)) return null;
+      const P = E(B.a[0]); if (!P || P.type !== "IFCPLANE") return null;
+      const Mp = mul(M, placement3D(P.a[0])); const o = tp(Mp, [0, 0, 0]); let n = norm(td(Mp, [0, 0, 1]));
+      if (str(B.a[1]) !== "T") n = n.map((v) => -v);
+      const r = { o, n };
+      if (B.type === "IFCPOLYGONALBOUNDEDHALFSPACE") { const Mb = mul(M, placement3D(B.a[2])); r.borne = { o: tp(Mb, [0, 0, 0]), x: norm(td(Mb, [1, 0, 0])), y: norm(td(Mb, [0, 1, 0])), poly: courbe2D(B.a[3]) }; }
+      return r;
+    }
+    function revolution(e, M, out, c) {
+      const pr = profil(e.a[0]); if (!pr) return;
+      const M2 = mul(M, placement3D(e.a[1])); const ax = E(e.a[2]); if (!ax) return;
+      const a0 = pt(ax.a[0]), ad = dir(ax.a[1], [0, 1, 0]); const ang = (num(e.a[3]) || 0) * kAng; const plein = Math.abs(ang) >= 2 * Math.PI - 1e-6;
+      const n = Math.max(2, Math.ceil(Math.abs(ang) / (Math.PI / 12)));
+      const rot = (q, t) => { const v = [q[0] - a0[0], q[1] - a0[1], 0], d = dot(v, ad), pa = ad.map((x) => x * d), r = sub(v, pa), w = cross(ad, r); return tp(M2, [a0[0] + pa[0] + r[0] * Math.cos(t) + w[0] * Math.sin(t), a0[1] + pa[1] + r[1] * Math.cos(t) + w[1] * Math.sin(t), pa[2] + r[2] * Math.cos(t) + w[2] * Math.sin(t)]); };
+      const tris = [], ar = [];
+      for (const L of [pr.outer, ...pr.holes]) for (let i = 0; i < n; i++) {
+        const t0 = (ang * i) / n, t1 = (ang * (i + 1)) / n;
+        for (let j = 0; j < L.length; j++) { const A = L[j], B2 = L[(j + 1) % L.length]; const p0 = rot(A, t0), p1 = rot(B2, t0), p2 = rot(B2, t1), p3 = rot(A, t1); tris.push([p0, p1, p2], [p0, p2, p3]); if (i === 0 && !plein) ar.push([p0, p1]); }
+      }
+      if (!plein) for (const t of triangulate(pr.outer, pr.holes)) { tris.push(t.map((q) => rot(q, 0))); tris.push(t.map((q) => rot(q, ang))); }
+      out.push({ tris, aretes: ar, couleur: c, src: e.id });
     }
     function boucle(r) { const e = E(r); if (!e) return []; if (e.type === "IFCPOLYLOOP") return (e.a[0] || []).map(pt); return []; }
     function faceGeom(f, M, out, c, src) {
@@ -270,23 +430,93 @@ const IFC = (() => {
     }
     function profil(r) {
       const e = E(r); if (!e) return null;
-      const P2 = e.a[2] && E(e.a[2]) ? placement3D(e.a[2]) : I4(); const app = (L) => L.map((q) => { const p = tp(P2, [q[0], q[1], 0]); return [p[0], p[1]]; });
-      if (e.type === "IFCRECTANGLEPROFILEDEF") { const x = num(e.a[3]) * k / 2, y = num(e.a[4]) * k / 2; return { outer: app([[-x, -y], [x, -y], [x, y], [-x, y]]), holes: [], rect: [x * 2, y * 2], P2 }; }
-      if (e.type === "IFCCIRCLEPROFILEDEF") { const R = num(e.a[3]) * k; return { outer: app([...Array(24)].map((_, i) => [R * Math.cos(i * Math.PI / 12), R * Math.sin(i * Math.PI / 12)])), holes: [] }; }
-      if (e.type === "IFCARBITRARYCLOSEDPROFILEDEF" || e.type === "IFCARBITRARYPROFILEDEFWITHVOIDS") {
-        const outer = courbe2D(e.a[2]); const holes = e.type === "IFCARBITRARYPROFILEDEFWITHVOIDS" ? (e.a[3] || []).map(courbe2D) : [];
-        return outer.length >= 3 ? { outer, holes } : null;
+      const T = e.type;
+      const P2 = /PROFILEDEF$/.test(T) && !/^IFCARBITRARY|^IFCDERIVED|^IFCCOMPOSITE/.test(T) && e.a[2] && E(e.a[2]) ? placement3D(e.a[2]) : I4();
+      const app = (L) => L.map((q) => { const p = tp(P2, [q[0], q[1], 0]); return [p[0], p[1]]; });
+      const v = (i) => (num(e.a[i]) || 0) * k;
+      const cercle = (R, n = 32) => [...Array(n)].map((_, i) => [R * Math.cos((i * 2 * Math.PI) / n), R * Math.sin((i * 2 * Math.PI) / n)]);
+      const decale = (L, dx, dy) => L.map((q) => [q[0] + dx, q[1] + dy]);
+      if (T === "IFCRECTANGLEPROFILEDEF") { const x = v(3) / 2, y = v(4) / 2; return { outer: app([[-x, -y], [x, -y], [x, y], [-x, y]]), holes: [], rect: [x * 2, y * 2], P2 }; }
+      if (T === "IFCCIRCLEPROFILEDEF") return { outer: app(cercle(v(3))), holes: [] };
+      if (T === "IFCELLIPSEPROFILEDEF") return { outer: app(cercle(1).map((q) => [q[0] * v(3), q[1] * v(4)])), holes: [] };
+      if (T === "IFCCIRCLEHOLLOWPROFILEDEF") { const R = v(3), t = v(4); return { outer: app(cercle(R)), holes: R - t > 1e-6 ? [app(cercle(R - t)).reverse()] : [] }; }
+      if (T === "IFCRECTANGLEHOLLOWPROFILEDEF") { const x = v(3) / 2, y = v(4) / 2, t = v(5); return { outer: app([[-x, -y], [x, -y], [x, y], [-x, y]]), holes: x > t && y > t ? [app([[-x + t, -y + t], [-x + t, y - t], [x - t, y - t], [x - t, -y + t]])] : [] }; }
+      if (T === "IFCISHAPEPROFILEDEF" || T === "IFCASYMMETRICISHAPEPROFILEDEF") { const w = v(3) / 2, d = v(4) / 2, a = v(5) / 2, f = v(6); return { outer: app([[-w, -d], [w, -d], [w, -d + f], [a, -d + f], [a, d - f], [w, d - f], [w, d], [-w, d], [-w, d - f], [-a, d - f], [-a, -d + f], [-w, -d + f]]), holes: [] }; }
+      if (T === "IFCLSHAPEPROFILEDEF") { const D = v(3), W = num(e.a[4]) != null ? v(4) : D, t = v(5); return { outer: app(decale([[0, 0], [W, 0], [W, t], [t, t], [t, D], [0, D]], -W / 2, -D / 2)), holes: [] }; }
+      if (T === "IFCUSHAPEPROFILEDEF") { const D = v(3), B = v(4), tw = v(5), tf = v(6); return { outer: app(decale([[0, 0], [B, 0], [B, tf], [tw, tf], [tw, D - tf], [B, D - tf], [B, D], [0, D]], -B / 2, -D / 2)), holes: [] }; }
+      if (T === "IFCTSHAPEPROFILEDEF") { const D = v(3), B = v(4), tw = v(5) / 2, tf = v(6); return { outer: app([[-tw, -D / 2], [tw, -D / 2], [tw, D / 2 - tf], [B / 2, D / 2 - tf], [B / 2, D / 2], [-B / 2, D / 2], [-B / 2, D / 2 - tf], [-tw, D / 2 - tf]]), holes: [] }; }
+      if (T === "IFCCSHAPEPROFILEDEF") { const D = v(3) / 2, W = v(4) / 2, t = v(5), g = v(6); return { outer: app([[W, -D + g], [W, -D], [-W, -D], [-W, D], [W, D], [W, D - g], [W - t, D - g], [W - t, D - t], [-W + t, D - t], [-W + t, -D + t], [W - t, -D + t], [W - t, -D + g]]), holes: [] }; }
+      if (T === "IFCZSHAPEPROFILEDEF") { const D = v(3) / 2, B = v(4), tw = v(5) / 2, tf = v(6); return { outer: app([[-B + tw, -D], [tw, -D], [tw, D - tf], [B - tw, D - tf], [B - tw, D], [-tw, D], [-tw, -D + tf], [-B + tw, -D + tf]]), holes: [] }; }
+      if (T === "IFCDERIVEDPROFILEDEF") {
+        const pa = profil(e.a[2]); const op = E(e.a[3]); if (!pa || !op) return pa;
+        const x = op.a[0] && E(op.a[0]) ? dir(op.a[0], [1, 0, 0]) : [1, 0, 0], y = op.a[1] && E(op.a[1]) ? dir(op.a[1], [-x[1], x[0], 0]) : [-x[1], x[0], 0], o = op.a[2] ? pt(op.a[2]) : [0, 0, 0], sc = num(op.a[3]) || 1;
+        const f = (L) => L.map((q) => [o[0] + (x[0] * q[0] + y[0] * q[1]) * sc, o[1] + (x[1] * q[0] + y[1] * q[1]) * sc]);
+        return { outer: f(pa.outer), holes: pa.holes.map(f) };
       }
-      avertissements.add("Profil non dessiné : " + e.type); return null;
+      if (T === "IFCARBITRARYCLOSEDPROFILEDEF" || T === "IFCARBITRARYPROFILEDEFWITHVOIDS") {
+        const outer = courbe2D(e.a[2]); const holes = T === "IFCARBITRARYPROFILEDEFWITHVOIDS" ? (e.a[3] || []).map((h) => courbe2D(h)).filter((h) => h.length >= 3) : [];
+        if (outer.length < 3) return null;
+        const r2 = { outer, holes };
+        // contour rectangulaire (murs droits de Revit et ArchiCAD) : traite comme une boite, pour decouper les ouvertures
+        if (outer.length === 4 && !holes.length) {
+          const ed = outer.map((q, i) => { const n = outer[(i + 1) % 4]; return [n[0] - q[0], n[1] - q[1]]; });
+          const ln = ed.map((d) => Math.hypot(d[0], d[1]));
+          const droit = ed.every((d, i) => { const f = ed[(i + 1) % 4]; return Math.abs(d[0] * f[0] + d[1] * f[1]) < 1e-6 * ln[i] * ln[(i + 1) % 4]; });
+          if (droit && ln[0] > 1e-6 && ln[1] > 1e-6) {
+            const ux = [ed[0][0] / ln[0], ed[0][1] / ln[0], 0]; const cx = outer.reduce((a, q) => a + q[0], 0) / 4, cy = outer.reduce((a, q) => a + q[1], 0) / 4;
+            r2.rect = [ln[0], ln[1]]; r2.P2 = frame(ux, [-ux[1], ux[0], 0], [0, 0, 1], [cx, cy, 0]);
+          }
+        }
+        return r2;
+      }
+      avertissements.add("Profil non dessiné : " + T); return null;
     }
-    function courbe2D(r) {
+    // Courbes 2D (contours de profils), arcs de cercle discretises
+    function arc3(a, b, c) {
+      const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
+      if (Math.abs(d) < 1e-14) return [a, b, c];
+      const a2 = a[0] ** 2 + a[1] ** 2, b2 = b[0] ** 2 + b[1] ** 2, c2 = c[0] ** 2 + c[1] ** 2;
+      const ox = (a2 * (b[1] - c[1]) + b2 * (c[1] - a[1]) + c2 * (a[1] - b[1])) / d, oy = (a2 * (c[0] - b[0]) + b2 * (a[0] - c[0]) + c2 * (b[0] - a[0])) / d;
+      const R = Math.hypot(a[0] - ox, a[1] - oy), an = (q) => Math.atan2(q[1] - oy, q[0] - ox);
+      const t0 = an(a), tb = an(b), tc = an(c), tour = (t) => ((t - t0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+      let sw = tour(tc); if (tour(tb) > sw) sw -= 2 * Math.PI;
+      const n = Math.max(2, Math.ceil(Math.abs(sw) / (Math.PI / 16)));
+      return [...Array(n + 1)].map((_, i) => (i === 0 ? a : i === n ? c : [ox + R * Math.cos(t0 + (sw * i) / n), oy + R * Math.sin(t0 + (sw * i) / n)]));
+    }
+    function courbe2D(r, ferme = true) {
       const e = E(r); if (!e) return [];
-      let L = [];
-      if (e.type === "IFCPOLYLINE") L = (e.a[0] || []).map((p) => { const q = pt(p); return [q[0], q[1]]; });
-      else if (e.type === "IFCINDEXEDPOLYCURVE") { const pl = E(e.a[0]); L = ((pl && pl.a[0]) || []).map((q) => [q[0] * k, q[1] * k]); }
-      else avertissements.add("Courbe non dessinée : " + e.type);
-      if (L.length > 1 && Math.hypot(L[0][0] - L[L.length - 1][0], L[0][1] - L[L.length - 1][1]) < 1e-9) L.pop();
+      const L = [], push = (C) => { for (const q of C) { const l = L[L.length - 1]; if (!l || Math.hypot(l[0] - q[0], l[1] - q[1]) > 1e-9) L.push(q); } };
+      const T = e.type;
+      if (T === "IFCPOLYLINE") push((e.a[0] || []).map((p) => { const q = pt(p); return [q[0], q[1]]; }));
+      else if (T === "IFCINDEXEDPOLYCURVE") {
+        const pl = E(e.a[0]); const P = ((pl && pl.a[0]) || []).map((q) => [q[0] * k, q[1] * k]);
+        if (!Array.isArray(e.a[1]) || !e.a[1].length) push(P);
+        else for (const sg of e.a[1]) { const ix = (Array.isArray(sg.v) ? sg.v : []).map((i) => P[i - 1]).filter(Boolean); push(sg.t === "IFCARCINDEX" && ix.length === 3 ? arc3(ix[0], ix[1], ix[2]) : ix); }
+      }
+      else if (T === "IFCCOMPOSITECURVE") for (const sr of e.a[0] || []) { const sg = E(sr); if (!sg) continue; let C = courbe2D(sg.a[2], false); if (str(sg.a[1]) === "F") C = C.slice().reverse(); push(C); }
+      else if (T === "IFCTRIMMEDCURVE") push(courbeTronquee(e));
+      else if (T === "IFCCIRCLE" || T === "IFCELLIPSE") { const Mc = placement3D(e.a[0]), a = num(e.a[1]) * k, b = T === "IFCELLIPSE" ? num(e.a[2]) * k : a; push([...Array(32)].map((_, i) => { const p = tp(Mc, [a * Math.cos((i * Math.PI) / 16), b * Math.sin((i * Math.PI) / 16), 0]); return [p[0], p[1]]; })); }
+      else avertissements.add("Courbe non dessinée : " + T);
+      if (ferme && L.length > 1 && Math.hypot(L[0][0] - L[L.length - 1][0], L[0][1] - L[L.length - 1][1]) < 1e-9) L.pop();
       return L;
+    }
+    function courbeTronquee(e) {
+      const B = E(e.a[0]); if (!B) return [];
+      const sens = str(e.a[3]) !== "F", cart = str(e.a[4]) === "CARTESIAN";
+      const lire = (lst) => { let c = null, t = null; for (const x of lst || []) { if (x && x.t === "IFCPARAMETERVALUE") t = num(x.v); else { const q = E(x); if (q && q.type === "IFCCARTESIANPOINT") { const p = pt(x); c = [p[0], p[1]]; } } } return { c, t }; };
+      const t1 = lire(e.a[1]), t2 = lire(e.a[2]);
+      if (B.type === "IFCLINE") { const o = pt(B.a[0]), vv = E(B.a[1]), d = vv ? dir(vv.a[0], [1, 0, 0]).map((x) => x * (num(vv.a[1]) || 1) * k) : [1, 0, 0]; const at = (t) => [o[0] + d[0] * t, o[1] + d[1] * t]; return [t1.c && (cart || t1.t == null) ? t1.c : at(t1.t || 0), t2.c && (cart || t2.t == null) ? t2.c : at(t2.t || 0)]; }
+      if (B.type === "IFCCIRCLE" || B.type === "IFCELLIPSE") {
+        const Mc = placement3D(B.a[0]), a = num(B.a[1]) * k, b = B.type === "IFCELLIPSE" ? num(B.a[2]) * k : a;
+        const o = tp(Mc, [0, 0, 0]), X = norm(td(Mc, [1, 0, 0])), Y = norm(td(Mc, [0, 1, 0]));
+        const ang = (T) => (T.c && (cart || T.t == null) ? Math.atan2(((T.c[0] - o[0]) * Y[0] + (T.c[1] - o[1]) * Y[1]) / b, ((T.c[0] - o[0]) * X[0] + (T.c[1] - o[1]) * X[1]) / a) : (T.t || 0) * kAng);
+        const a1 = ang(t1); let a2 = ang(t2);
+        if (sens) { while (a2 <= a1 + 1e-9) a2 += 2 * Math.PI; } else { while (a2 >= a1 - 1e-9) a2 -= 2 * Math.PI; }
+        const n = Math.max(2, Math.ceil(Math.abs(a2 - a1) / (Math.PI / 16)));
+        return [...Array(n + 1)].map((_, i) => { const t = a1 + ((a2 - a1) * i) / n; const p = tp(Mc, [a * Math.cos(t), b * Math.sin(t), 0]); return [p[0], p[1]]; });
+      }
+      if (B.type === "IFCPOLYLINE") return courbe2D(e.a[0], false);
+      avertissements.add("Courbe non dessinée : " + B.type); return [];
     }
     function extrusion(e, M, out, c) {
       const pr = profil(e.a[0]); if (!pr) return;
@@ -369,6 +599,109 @@ const IFC = (() => {
       return t > 1e-9 && t < 1 - 1e-9 && u > -1e-9 && u < 1 + 1e-9 ? t : null;
     }
 
+    // Coupe d'un morceau par un plan : garde le cote de la normale, rebouche la coupe
+    function couperMorceau(m, { o, n, borne }) {
+      const d = (p) => dot(n, sub(p, o));
+      const pts = m.tris.flat();
+      if (pts.every((p) => d(p) >= -1e-7)) return m;
+      if (borne) {
+        // demi-espace borne par un contour : applique seulement si tout l'element est dans le contour
+        const P = borne.poly; if (P.length < 3) return m;
+        const dans = (q) => { let c = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const a = P[i], b = P[j]; if ((a[1] > q[1]) !== (b[1] > q[1]) && q[0] < ((b[0] - a[0]) * (q[1] - a[1])) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
+        const loc = (p) => { const v = sub(p, borne.o); return [dot(v, borne.x), dot(v, borne.y)]; };
+        if (!pts.filter((p) => d(p) < -1e-7).every((p) => dans(loc(p)))) { avertissements.add("Découpes booléennes simplifiées (forme avant découpe)"); return m; }
+      }
+      if (pts.every((p) => d(p) <= 1e-7)) return null;
+      const inter = (a, b) => { const da = d(a), db = d(b), t = da / (da - db); return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; };
+      const tris = [], segs = [];
+      for (const t of m.tris) {
+        const P = [], cut = [];
+        for (let i = 0; i < 3; i++) { const a = t[i], b = t[(i + 1) % 3], da = d(a), db = d(b); if (da >= 0) P.push(a); if ((da >= 0) !== (db >= 0)) { const q = inter(a, b); P.push(q); cut.push(q); } }
+        for (let i = 1; i < P.length - 1; i++) tris.push([P[0], P[i], P[i + 1]]);
+        if (cut.length === 2) segs.push(cut);
+      }
+      const aretes = [];
+      for (const [a, b] of m.aretes) { const da = d(a), db = d(b); if (da >= 0 && db >= 0) aretes.push([a, b]); else if (da >= 0) aretes.push([a, inter(a, b)]); else if (db >= 0) aretes.push([inter(a, b), b]); }
+      // rebouchage : on chaine les segments de coupe en boucles
+      const cle = (p) => p.map((v) => Math.round(v * 1e6)).join(","), adj = new Map(), P3 = new Map();
+      for (const [a, b] of segs) { const ka = cle(a), kb = cle(b); if (ka === kb) continue; P3.set(ka, a); P3.set(kb, b); for (const [x, y] of [[ka, kb], [kb, ka]]) { if (!adj.has(x)) adj.set(x, []); adj.get(x).push(y); } }
+      const vus = new Set(), boucles = [];
+      for (const dep of adj.keys()) {
+        if (vus.has(dep) || adj.get(dep).length !== 2) continue;
+        const B = [dep]; vus.add(dep); let prec = null, cur = dep, ok = true;
+        for (let g = 0; g < 100000; g++) { const nx = adj.get(cur); if (!nx || nx.length !== 2) { ok = false; break; } const s2 = nx[0] !== prec ? nx[0] : nx[1]; if (s2 === dep) break; if (vus.has(s2)) { ok = false; break; } B.push(s2); vus.add(s2); prec = cur; cur = s2; }
+        // points alignes retires : sinon le rebouchage cree des triangles plats
+        const Bp = B.map((x) => P3.get(x)).filter((p, i, A) => { const a = A[(i + A.length - 1) % A.length], c = A[(i + 1) % A.length]; return len(cross(sub(p, a), sub(c, p))) > 1e-12; });
+        if (ok && Bp.length >= 3) boucles.push(Bp);
+      }
+      if (boucles.length) {
+        const u = norm(Math.abs(n[0]) < 0.9 ? cross(n, [1, 0, 0]) : cross(n, [0, 1, 0])), w = cross(n, u);
+        const B2 = boucles.map((B) => B.map((p) => { const v = sub(p, o); return [dot(v, u), dot(v, w)]; }));
+        const aire = (Q) => Math.abs(area2(Q));
+        const dans = (q, Q) => { let c = false; for (let i = 0, j = Q.length - 1; i < Q.length; j = i++) { const a = Q[i], b = Q[j]; if ((a[1] > q[1]) !== (b[1] > q[1]) && q[0] < ((b[0] - a[0]) * (q[1] - a[1])) / (b[1] - a[1]) + a[0]) c = !c; } return c; };
+        const parent = B2.map((Q, i) => { let best = -1; B2.forEach((R, j) => { if (j !== i && aire(R) > aire(Q) && dans(Q[0], R) && (best < 0 || aire(R) < aire(B2[best]))) best = j; }); return best; });
+        const prof = (i) => { let c = 0, x = parent[i]; while (x >= 0 && c < 50) { c++; x = parent[x]; } return c; };
+        boucles.forEach((B, i) => { if (prof(i) % 2) return; tris.push(...triangulate3D(B, boucles.filter((_, j) => parent[j] === i && prof(j) % 2 === 1))); });
+        for (const B of boucles) B.forEach((p, i) => aretes.push([p, B[(i + 1) % B.length]]));
+      }
+      return { ...m, tris, aretes, boite: null, coupes: null };
+    }
+    // Aretes vives seulement (angle entre faces > 20°) : evite les maillages noircis (arbres, objets ronds)
+    function aretesVives(morceaux) {
+      // identifiant numerique par sommet (hash des coordonnees au 1/100 mm), puis cle numerique par arete
+      const ids = new Map(); let nid = 0;
+      const id = (p) => { const h = (Math.round(p[0] * 1e5) * 73856093) ^ (Math.round(p[1] * 1e5) * 19349663) ^ (Math.round(p[2] * 1e5) * 83492791); let v = ids.get(h); if (v === undefined) { v = nid++; ids.set(h, v); } return v; };
+      const ck = (a, b) => (a < b ? a * 67108864 + b : b * 67108864 + a), nrm = new Map();
+      for (const m of morceaux) for (const t of m.tris) {
+        const nn = norm(cross(sub(t[1], t[0]), sub(t[2], t[0]))); if (!isFinite(nn[0])) continue;
+        const a = id(t[0]), b = id(t[1]), c = id(t[2]);
+        for (const kk of [ck(a, b), ck(b, c), ck(c, a)]) { const N = nrm.get(kk); if (N) N.push(nn); else nrm.set(kk, [nn]); }
+      }
+      for (const m of morceaux) m.aretes = m.aretes.filter(([p, q]) => { const N = nrm.get(ck(id(p), id(q))); if (!N || N.length !== 2) return true; return Math.abs(dot(N[0], N[1])) < 0.94; });
+    }
+
+    // Ouvertures dans une forme quelconque : soustraction de solides par groupe de faces (src)
+    function percerSolide(morceaux, ouvs) {
+      const total = morceaux.reduce((a, m) => a + m.tris.length, 0);
+      if (total > 20000) return null;
+      const trous = [];
+      for (const op of ouvs) {
+        const gr = new Map(); for (const m of op) { const kk = m.src ?? m; if (!gr.has(kk)) gr.set(kk, []); gr.get(kk).push(...m.tris); }
+        for (const g of gr.values()) {
+        const tris = enveloppe3D(g.flat()); if (!tris.length) continue;
+        // ouverture tres legerement agrandie (0,1 mm) : evite les faces confondues avec celles du mur
+        const bb = bbox(tris.flat()), c = bb.min.map((v, i) => (v + bb.max[i]) / 2), f = bb.min.map((v, i) => 1 + 2e-4 / Math.max(bb.max[i] - v, 1e-3));
+        trous.push(tris.map((t) => t.map((p) => p.map((v, i) => c[i] + (v - c[i]) * f[i]))));
+        }
+      }
+      if (!trous.length) return null;
+      const bbM = bbox(morceaux.flatMap((m) => m.tris.flat()));
+      const touche = (h) => { const b = bbox(h.flat()); return [0, 1, 2].every((i) => b.min[i] <= bbM.max[i] && b.max[i] >= bbM.min[i]); };
+      const utiles = trous.filter(touche); if (!utiles.length) return null;
+      const groupes = new Map(); for (const m of morceaux) { const kk = m.src ?? m; if (!groupes.has(kk)) groupes.set(kk, []); groupes.get(kk).push(m); }
+      const out = [];
+      try {
+        for (const g of groupes.values()) {
+          const tris = soustraire(g.flatMap((m) => m.tris), utiles);
+          if (!tris.length) continue;
+          const aretes = facesPlanes(tris).flatMap((f) => f.boucles.flatMap((B) => B.map((p, i) => [p, B[(i + 1) % B.length]])));
+          out.push({ tris, aretes, couleur: g[0].couleur, src: g[0].src, coupes: g[0].coupes });
+        }
+      } catch (err) { return null; }
+      if (!out.length) { return null; }
+      // surface du mur : sa plus grande face (le parement), brute = longueur x hauteur
+      const F = facesPlanes(out.flatMap((m) => m.tris)); let best = null, ba = 0;
+      for (const f of F) { const B = f.boucles[0]; if (B.length < 3) continue; const nw = [0, 0, 0]; B.forEach((p, i) => { const q = B[(i + 1) % B.length]; nw[0] += (p[1] - q[1]) * (p[2] + q[2]); nw[1] += (p[2] - q[2]) * (p[0] + q[0]); nw[2] += (p[0] - q[0]) * (p[1] + q[1]); }); if (Math.abs(nw[2]) > 0.2 * len(nw)) continue; let a = len(nw) / 2; for (const H of f.boucles.slice(1)) { const nh = [0, 0, 0]; H.forEach((p, i) => { const q = H[(i + 1) % H.length]; nh[0] += (p[1] - q[1]) * (p[2] + q[2]); nh[1] += (p[2] - q[2]) * (p[0] + q[0]); nh[2] += (p[0] - q[0]) * (p[1] + q[1]); }); a -= len(nh) / 2; } if (a > ba) { ba = a; best = { f, n: norm(nw) }; } }
+      let surf = null;
+      if (best) {
+        const z = [0, 0, 1], u = norm(cross(z, best.n)), P = out.flatMap((m) => m.tris.flat());
+        const ext = (d) => { const v = P.map((p) => dot(p, d)); return Math.max(...v) - Math.min(...v); };
+        const Lw = ext(u), hw = ext(z), Tw = ext(best.n);
+        surf = { L: Lw, h: hw, T: Tw, brute: Lw * hw, nette: ba, trous: best.f.boucles.length - 1 };
+      }
+      return { morceaux: out, surf };
+    }
+
     // ---------- Produits ----------
     const produits = [];
     const geomOuv = new Map();
@@ -382,8 +715,12 @@ const IFC = (() => {
       const p = { id: e.id, ifc: e.type, type: fr, nom: str(e.a[2]) || fr, gid: str(e.a[0]), desc: str(e.a[3]), objType: str(e.a[4]), etage: etageId(e.id), materiau: materiauDe.has(e.id) ? nomMateriau(materiauDe.get(e.id)) : "", psets: psets(e.id), mur: null };
       if (/^IFCWALL/.test(e.type) && ouverturesDe.has(e.id) && morceaux.length === 1 && morceaux[0].boite) {
         const r = murPerce(morceaux[0], ouverturesDe.get(e.id).map((o) => geomOuv.get(o) || []));
-        morceaux = [r.morceau]; p.surf = { L: r.L, h: r.h, T: r.T, brute: r.brute, nette: r.nette, trous: r.nbTrous };
-      } else if (ouverturesDe.has(e.id)) avertissements.add("Ouvertures non découpées dans certains éléments (forme complexe)");
+        r.morceau.coupes = morceaux[0].coupes; morceaux = [r.morceau]; p.surf = { L: r.L, h: r.h, T: r.T, brute: r.brute, nette: r.nette, trous: r.nbTrous };
+      } else if (ouverturesDe.has(e.id)) {
+        const r = percerSolide(morceaux, ouverturesDe.get(e.id).map((o) => geomOuv.get(o) || []));
+        if (r) { morceaux = r.morceaux; if (/^IFCWALL/.test(e.type) && r.surf) p.surf = r.surf; }
+        else avertissements.add("Ouvertures non découpées dans certains éléments (forme complexe)");
+      }
       else if (/^IFCWALL/.test(e.type) && morceaux.length === 1 && morceaux[0].boite) { const b = morceaux[0].boite; const L = Math.max(b.w, b.t), T = Math.min(b.w, b.t); p.surf = { L, h: b.h, T, brute: L * b.h, nette: L * b.h, trous: 0 }; }
       // Fenetres et portes : la vitre (piece la plus fine) en bleu translucide
       if ((e.type === "IFCWINDOW" || e.type === "IFCDOOR") && morceaux.length > 1) {
@@ -396,6 +733,10 @@ const IFC = (() => {
         const mm = (v) => (v == null ? null : Math.round(v * k > 50 ? v : v * k * 1000));
         p.hauteur = mm(H); p.largeur = mm(W);
       }
+      // coupes par plan (apres les ouvertures), puis aretes allegees sur les formes tres facettees
+      morceaux = morceaux.flatMap((m) => { let x = m; for (const c of m.coupes || []) { if (x) x = couperMorceau(x, c); } return x && x.tris.length ? [x] : []; });
+      if (!morceaux.length) continue;
+      if (morceaux.reduce((s2, m) => s2 + m.aretes.length, 0) > 150) aretesVives(morceaux);
       p.morceaux = morceaux;
       p.bb = bbox(morceaux.flatMap((m) => m.tris.flat()));
       produits.push(p);
@@ -528,7 +869,8 @@ const IFC = (() => {
     const cle3 = (q) => q.map((v) => Math.round(v * 1e5)).join(",");
     const plans = new Map();
     for (const t of tris) {
-      let n = norm(cross(sub(t[1], t[0]), sub(t[2], t[0]))); if (!isFinite(n[0])) continue;
+      const cr = cross(sub(t[1], t[0]), sub(t[2], t[0])); if (len(cr) < 1e-12) continue; // triangle plat : ignore
+      let n = norm(cr); if (!isFinite(n[0])) continue;
       const neg = n[0] < -1e-9 || (Math.abs(n[0]) <= 1e-9 && (n[1] < -1e-9 || (Math.abs(n[1]) <= 1e-9 && n[2] < 0)));
       if (neg) n = n.map((v) => -v);
       const d = dot(n, t[0]);
@@ -725,6 +1067,6 @@ const IFC = (() => {
   }
 
   const couleurType = (ifc) => COULEURS[ifc] || [0.62, 0.64, 0.66];
-  return { build, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, calqueDe, CALQUES, couleurType, VERRE };
+  return { build, bbox, triangulate, subtractConvex, hull, couper, dxf, step, stepStr, topologie, soustraire, enveloppe3D, calqueDe, CALQUES, couleurType, VERRE };
 })();
 export default IFC;

@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.2";
+import IFC from "./core.js?v=1.3";
 
-const VERSION = "1.2";
+const VERSION = "1.3";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -543,7 +543,9 @@ const RESERVEE_CONCEPTEUR = true;
     construire(); arbre(); onglet(ongletActif); afficherProps(); majOutils();
     $("#fichier").textContent = nom; document.title = `${nom} — Maquette`;
     $("#infos").textContent = `${m.schema}${m.logiciel ? ` · ${m.logiciel}` : ""} · ${m.produits.length} éléments · lu en ${ms < 1000 ? `${Math.max(1, Math.round(ms))} ms` : `${(ms / 1000).toFixed(1).replace(".", ",")} s`}`;
-    const av = $("#avert"); av.hidden = !m.avertissements.length; av.textContent = m.avertissements.length ? `Maquette : ${m.avertissements.slice(0, 3).join(" · ")}${m.avertissements.length > 3 ? "…" : ""}` : "";
+    // avertissements en langage courant (le detail technique reste au survol)
+    const lisible = [...new Set(m.avertissements.map((a) => /^Ouvertures/.test(a) ? "certaines ouvertures ne sont pas découpées" : /^Découpes/.test(a) ? "certaines découpes de forme sont ignorées" : "quelques formes ne sont pas dessinées"))];
+    const av = $("#avert"); av.hidden = !lisible.length; av.textContent = lisible.length ? `Maquette ouverte, mais ${lisible.join(", ")}.` : ""; av.title = m.avertissements.join("\n");
     dimensionner(); vue("3d");
   }
   // Lecture dans un travailleur en arriere-plan (la page reste fluide) ; a defaut, directement
@@ -556,7 +558,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.2", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.3", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     w.onmessage = (e) => { w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier : ${e.data.err}`); };
     w.onerror = (e) => { e.preventDefault(); w.terminate(); direct(); };
     w.postMessage(texte);

@@ -139,3 +139,100 @@ test("export STEP : assemblage AP214 en mm, une piece par element, faces planes"
 test("export STEP : noms accentues encodes", () => {
   assert.equal(IFC.stepStr("Façade d'été"), "'Fa\\X2\\00E7\\X0\\ade d''\\X2\\00E9\\X0\\t\\X2\\00E9\\X0\\'");
 });
+
+// Petit fichier facon Revit / ArchiCAD : deux unites de longueur declarees, mur trapeze (onglets) perce, profil avec arc, mur coupe par un plan
+const VRAI = `ISO-10303-21;HEADER;FILE_SCHEMA(('IFC4'));ENDSEC;DATA;
+#1=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);
+#2=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#4=IFCUNITASSIGNMENT((#1));
+#5=IFCPROJECT('p',$,'Essai',$,$,$,$,$,#4);
+#10=IFCCARTESIANPOINT((0.,0.,0.));
+#11=IFCAXIS2PLACEMENT3D(#10,$,$);
+#12=IFCLOCALPLACEMENT($,#11);
+#15=IFCDIRECTION((0.,0.,1.));
+#30=IFCCARTESIANPOINT((200.,-200.));
+#31=IFCCARTESIANPOINT((4800.,-200.));
+#32=IFCCARTESIANPOINT((5000.,0.));
+#33=IFCCARTESIANPOINT((0.,0.));
+#34=IFCPOLYLINE((#30,#31,#32,#33,#30));
+#35=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,#34);
+#36=IFCEXTRUDEDAREASOLID(#35,#11,#15,3000.);
+#37=IFCSHAPEREPRESENTATION($,'Body','SweptSolid',(#36));
+#38=IFCPRODUCTDEFINITIONSHAPE($,$,(#37));
+#39=IFCWALL('w',$,'Mur onglet',$,$,#12,#38,$,$);
+#40=IFCCARTESIANPOINT((2000.,-500.,900.));
+#41=IFCAXIS2PLACEMENT3D(#40,$,$);
+#42=IFCLOCALPLACEMENT($,#41);
+#43=IFCCARTESIANPOINT((500.,500.));
+#44=IFCAXIS2PLACEMENT2D(#43,$);
+#45=IFCRECTANGLEPROFILEDEF(.AREA.,$,#44,1000.,1000.);
+#46=IFCEXTRUDEDAREASOLID(#45,#11,#15,1200.);
+#47=IFCSHAPEREPRESENTATION($,'Body','SweptSolid',(#46));
+#48=IFCPRODUCTDEFINITIONSHAPE($,$,(#47));
+#49=IFCOPENINGELEMENT('o',$,$,$,$,#42,#48,$,$);
+#50=IFCRELVOIDSELEMENT('v',$,$,$,#39,#49);
+#60=IFCCARTESIANPOINTLIST2D(((0.,0.),(1000.,0.),(1000.,500.),(500.,1000.),(0.,500.)));
+#61=IFCINDEXEDPOLYCURVE(#60,(IFCLINEINDEX((1,2,3)),IFCARCINDEX((3,4,5)),IFCLINEINDEX((5,1))),.F.);
+#62=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,#61);
+#63=IFCCARTESIANPOINT((0.,3000.,0.));
+#64=IFCAXIS2PLACEMENT3D(#63,$,$);
+#65=IFCEXTRUDEDAREASOLID(#62,#64,#15,100.);
+#66=IFCSHAPEREPRESENTATION($,'Body','SweptSolid',(#65));
+#67=IFCPRODUCTDEFINITIONSHAPE($,$,(#66));
+#68=IFCPLATE('a',$,'Plaque arrondie',$,$,#12,#67,$,$);
+#70=IFCCARTESIANPOINT((0.,6000.,0.));
+#71=IFCAXIS2PLACEMENT3D(#70,$,$);
+#72=IFCAXIS2PLACEMENT2D(#10,$);
+#73=IFCRECTANGLEPROFILEDEF(.AREA.,$,#72,2000.,200.);
+#74=IFCEXTRUDEDAREASOLID(#73,#71,#15,3000.);
+#75=IFCCARTESIANPOINT((0.,0.,2000.));
+#76=IFCDIRECTION((0.5,0.,0.866025403784));
+#77=IFCAXIS2PLACEMENT3D(#75,#76,$);
+#78=IFCPLANE(#77);
+#79=IFCHALFSPACESOLID(#78,.F.);
+#80=IFCBOOLEANCLIPPINGRESULT(.DIFFERENCE.,#74,#79);
+#81=IFCSHAPEREPRESENTATION($,'Body','Clipping',(#80));
+#82=IFCPRODUCTDEFINITIONSHAPE($,$,(#81));
+#83=IFCWALL('g',$,'Mur pignon',$,$,#12,#82,$,$);
+ENDSEC;END-ISO-10303-21;`;
+
+test("fichier facon Revit : unite de l'IFCUNITASSIGNMENT (mm), pas la derniere declaree", () => {
+  const m = IFC.build(VRAI);
+  const w = m.produits.find((p) => p.nom === "Mur onglet");
+  assert.ok(Math.abs(w.bb.max[0] - 5) < 1e-6 && Math.abs(w.bb.max[2] - 3) < 1e-6, JSON.stringify(w.bb));
+});
+
+test("mur en onglet (trapeze) : l'ouverture est decoupee et la surface nette calculee", () => {
+  const m = IFC.build(VRAI);
+  const w = m.produits.find((p) => p.nom === "Mur onglet");
+  assert.ok(!m.avertissements.some((a) => /Ouvertures/.test(a)), m.avertissements.join(" | "));
+  assert.equal(w.surf.trous, 1);
+  assert.ok(Math.abs(w.surf.nette - (w.surf.brute - 1.2)) < 0.02, `${w.surf.brute} ${w.surf.nette}`);
+  // le solide perce reste ferme : il s'exporte en un vrai solide STEP
+  const r = IFC.step(m, [m.produits.indexOf(w)]);
+  assert.equal(r.nbSolides, 1); assert.equal(r.nbSurfaces, 0);
+});
+
+test("profil a arc (IFCINDEXEDPOLYCURVE) dessine, sans avertissement", () => {
+  const m = IFC.build(VRAI);
+  const p = m.produits.find((x) => x.nom === "Plaque arrondie");
+  assert.ok(p && p.morceaux[0].tris.length > 10);
+  assert.ok(!m.avertissements.some((a) => /non dessin/.test(a)), m.avertissements.join(" | "));
+  // l'arc passe par (500, 1000) : le haut de la plaque est a 1 m
+  assert.ok(Math.abs(p.bb.max[1] - 4) < 1e-6, JSON.stringify(p.bb));
+});
+
+test("mur coupe par un plan (pignon) : la partie au-dessus du plan est retiree et rebouchee", () => {
+  const m = IFC.build(VRAI);
+  const g = m.produits.find((x) => x.nom === "Mur pignon");
+  // plan incline passant par z = 2 m en x = 0 : le haut du mur descend sous 3 m d'un cote
+  assert.ok(g.bb.max[2] < 3 - 1e-3 && g.bb.max[2] > 2, JSON.stringify(g.bb));
+  const r = IFC.step(m, [m.produits.indexOf(g)]);
+  assert.equal(r.nbSolides, 1, "rebouche : solide ferme");
+});
+
+test("enveloppe convexe 3D d'un cube", () => {
+  const P = []; for (const x of [0, 1]) for (const y of [0, 1]) for (const z of [0, 1]) P.push([x, y, z]);
+  P.push([0.5, 0.5, 0.5]);
+  assert.equal(IFC.enveloppe3D(P).length, 12);
+});
