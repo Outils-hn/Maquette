@@ -1,5 +1,5 @@
 // Maquette : lecture du fichier IFC (ou conversion d'un STEP) en arriere-plan, pour que la page reste fluide pendant le calcul.
-import IFC from "./core.js?v=1.15";
+import IFC from "./core.js?v=1.16";
 self.onmessage = async (e) => {
   try {
     // resultat d'OpenCascade (fichier STEP lu dans la boite sans reseau) : on le convertit en modele

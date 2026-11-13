@@ -558,3 +558,13 @@ test("Releve gros-oeuvre : sans axes ni cotes ni niveaux, il ne reste que les pl
   const vide = IFC.releve({ produits: [], etages: [], bbTout: { min: [0, 0, 0], max: [1, 1, 1] } });
   assert.ok(vide.vide && vide.avertissements.length === 1 && vide.segs.length === 0);
 });
+
+test("Controle qualite : cas douteux signales, rien d'invente sur TinyHouse, doublon et plat detectes", () => {
+  const g = IFC.controle(M);
+  assert.ok(Array.isArray(g));
+  for (const x of g) { assert.ok(x.titre && x.expl && x.items.length); for (const it of x.items) assert.ok(Number.isInteger(it.i) && it.texte); }
+  const copie = { ...M, produits: [...M.produits, { ...M.produits[0], nom: "Double" }, { ...M.produits[0], nom: "Plat", ifc: "IFCSLAB", bb: { min: [0, 0, 0], max: [1, 1, 0.0002] } }] };
+  const c = Object.fromEntries(IFC.controle(copie).map((x) => [x.cle, x]));
+  assert.ok(c.doublon && c.doublon.items.some((it) => /Double/.test(it.texte)));
+  assert.ok(c.plat && c.plat.items.some((it) => /Plat/.test(it.texte)));
+});
