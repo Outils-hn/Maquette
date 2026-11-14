@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.18 — 14 novembre 2026
+
+- Nouveauté : la barre d'outils de la vue 3D tient sur une seule ligne. Les réglages de la coupe (curseur, position au dixième de mm) n'apparaissent que lorsqu'une coupe est choisie.
+
 ## 1.17 — 14 novembre 2026
 
 - Nouveauté : nouveau look « Papier » : fond papier chaud, panneaux arrondis aux ombres fines, sélecteurs de vue en segments, et la surface nette d'un mur en grand dans « Le calcul ». Le mode sombre est conservé.

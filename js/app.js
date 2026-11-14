@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.17";
+import IFC from "./core.js?v=1.18";
 
-const VERSION = "1.17";
+const VERSION = "1.18";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -538,6 +538,7 @@ const RESERVEE_CONCEPTEUR = true;
   const CLE2D = { plan: "dessus", dessous: "dessous", a: "a", b: "b", c: "c", d: "d" };
   const baseNom = () => nomFichier.replace(/\.(ifc\w*|stp|step)( \(exemple\))?$/i, "");
   function majDxf() {
+    document.querySelector(".coupe").classList.toggle("on", !!$("#axeCoupe").value); // reglages de la coupe visibles seulement quand une coupe est active
     const b = $("#bDxf"), st = !!M && M.source === "step", v2 = st && etat.vue2d && NOMS2D[etat.vue2d];
     b.disabled = !M || !(etat.coupe || (st ? v2 : etat.face));
     b.title = etat.coupe ? "Exporter la coupe en DXF pour AutoCAD" : st ? (v2 ? `Exporter la vue ${NOMS2D[etat.vue2d].toLowerCase()} en DXF : arêtes, trous et cotes` : "Choisissez une vue (Dessus, Avant, Droite…) pour exporter en DXF") : etat.face ? "Exporter l'élévation cotée de cette face en DXF" : "Choisissez une coupe ou une face (A à D) pour exporter en DXF";
@@ -894,7 +895,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.17", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.18", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     let dernier = null, attente = false, tDernier = Date.now();
     // garde-fou : un element dont le calcul bloque plus de 30 s est ignore, et la lecture repart sans lui
     veille = setInterval(() => {
@@ -923,12 +924,12 @@ const RESERVEE_CONCEPTEUR = true;
     const fin = () => { $("#chargement").hidden = true; };
     let res;
     try {
-      const { lireStep } = await import("./step.js?v=1.17");
+      const { lireStep } = await import("./step.js?v=1.18");
       res = await lireStep(f, (t) => { $("#chargementTxt").textContent = `${nom} · ${t}…`; });
     } catch (err) { fin(); toast(`Impossible de lire ce fichier STEP : ${err.message}`); return; }
     $("#chargementTxt").textContent = `${nom} · Conversion de la géométrie…`;
     const direct = () => setTimeout(() => { try { afficherModele(IFC.depuisStep(res, { nom }), nom, performance.now() - t0); } catch (err) { toast(`Impossible de lire ce fichier STEP : ${err.message}`); } fin(); }, 30);
-    let w; try { w = new Worker(new URL("./worker.js?v=1.17", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    let w; try { w = new Worker(new URL("./worker.js?v=1.18", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     w.onmessage = (e) => { if (e.data.prog != null) return; w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier STEP : ${e.data.err}`); };
     w.onerror = (e) => { e.preventDefault(); w.terminate(); fin(); toast("Impossible de convertir ce fichier STEP (le calcul en arrière-plan a échoué)."); }; // les tableaux ont ete transferes : pas de reprise directe
     w.postMessage({ step: res, nom }, res.meshes.flatMap((m) => [m.pos.buffer, m.idx.buffer]));
@@ -1011,7 +1012,7 @@ const RESERVEE_CONCEPTEUR = true;
   new MutationObserver(envoyer).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   dimensionner();
-  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.17")).testerBoite(cible) };
+  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.18")).testerBoite(cible) };
 
 
 // ======================= Bandeau commun de la famille =======================
