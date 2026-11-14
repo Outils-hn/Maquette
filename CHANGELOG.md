@@ -2,6 +2,11 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.20 — 14 novembre 2026
+
+- Nouveauté : en bas de page, le lien « Conçu par… » devient « À propos » ; les noms (dont « Imaginé par Virgile G. ») sont dans la fenêtre qui s'ouvre. Les liens du pied de page ont partout la même présentation (soulignés au survol seulement).
+- Nouveauté : l'indication « Lecture seule » en haut de page disparaît.
+
 ## 1.19 — 14 novembre 2026
 
 - Nouveauté : un seul bouton « Exporter » regroupe le DXF de la coupe ou de la vue, le relevé gros-œuvre, l'export STEP et la copie de la liste pour Excel. Une pastille verte indique qu'un DXF est prêt.

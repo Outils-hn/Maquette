@@ -490,3 +490,4 @@ footer a:hover, footer button:hover { color: var(--ink); text-decoration: underl
 .tache small { color: var(--muted); font-size: 12px; line-height: 1.35; }
 .tache:hover { border-color: var(--app); background: var(--app-soft); }
 @media (max-width: 520px) { .taches { grid-template-columns: 1fr; } }
+.etat-compte:empty { display: none; }
