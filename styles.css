@@ -467,3 +467,26 @@ footer a:hover, footer button:hover { color: var(--ink); text-decoration: underl
 .coupe:not(.on) #hauteur, .coupe:not(.on) .pos { display: none; }
 @media (min-width: 901px) { .outils { gap: 6px; } }
 .seg button { padding: 6px 8px; }
+
+/* menu Exporter */
+.exporter { position: relative; }
+#bExporter .chev { width: 14px; height: 14px; margin-left: -2px; color: var(--muted); }
+#bExporter[aria-expanded="true"] { background: var(--app-soft); border-color: var(--app); color: var(--app-ink); }
+#bExporter.pret::after { content: ""; position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--app); box-shadow: 0 0 0 2px var(--surface); }
+#menuExport { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 300px; padding: 6px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 16px 40px -16px rgba(0, 0, 0, .3); display: grid; gap: 2px; }
+#menuExport .mi { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; padding: 9px 12px; border: 0; border-radius: 8px; background: none; text-align: left; cursor: pointer; color: var(--ink); }
+#menuExport .mi b { font-weight: 600; font-size: 13.5px; }
+#menuExport .mi small { color: var(--muted); font-size: 12px; }
+#menuExport .mi:hover:not(:disabled), #menuExport .mi:focus-visible { background: var(--app-soft); }
+#menuExport .mi:disabled { opacity: .45; cursor: default; }
+#menuExport .mi[hidden] { display: none; }
+
+/* accueil : partir d'une tache */
+.accueil-in { max-width: 560px; }
+.taches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; margin-top: 6px; }
+.taches-titre { grid-column: 1 / -1; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 6px 0 0; }
+.tache { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); cursor: pointer; color: var(--ink); }
+.tache b { font-weight: 600; font-size: 13.5px; }
+.tache small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.tache:hover { border-color: var(--app); background: var(--app-soft); }
+@media (max-width: 520px) { .taches { grid-template-columns: 1fr; } }
