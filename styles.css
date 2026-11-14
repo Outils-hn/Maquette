@@ -462,3 +462,8 @@ footer a:hover, footer button:hover { color: var(--ink); text-decoration: underl
 .groupe.calc .net span { font-size: 12.5px; color: var(--muted); }
 .groupe.calc .net b { font: 600 28px/1 var(--mono); letter-spacing: -.02em; color: var(--app-ink); }
 .groupe.calc .net b small { font-size: 14px; margin-left: 3px; font-weight: 500; }
+
+/* barre d'outils sur une seule ligne : les reglages de coupe n'apparaissent que quand une coupe est active */
+.coupe:not(.on) #hauteur, .coupe:not(.on) .pos { display: none; }
+@media (min-width: 901px) { .outils { gap: 6px; } }
+.seg button { padding: 6px 8px; }
