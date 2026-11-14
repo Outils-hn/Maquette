@@ -2,12 +2,12 @@
    Couleur propre a Maquette : vert olive. Mise en page : outil plein ecran sous le bandeau,
    contenu a gauche, vue 3D au centre, fiche de l'element a droite, listes en bas. */
 :root {
-  --bg: #fbfbfa; --surface: #ffffff; --sunk: #f4f4f2; --field: #ffffff;
-  --ink: #1f2026; --muted: #676a72; --line: #e8e8e5; --line-strong: #d4d4cf;
+  --bg: #f3f1ea; --surface: #ffffff; --sunk: #f1efe7; --field: #ffffff;
+  --ink: #1d2a22; --muted: #5b6a60; --line: #eeebe0; --line-strong: #d9d5c8;
   --app: #4d7c0f; --app-ink: #3f6212; --app-soft: #eef5e3; --on-app: #ffffff; --sel: rgba(77, 124, 15, 0.9);
-  --ciel-a: #eceee9; --ciel-b: #f9faf7; --arete: rgba(28, 32, 36, 0.5);
+  --ciel-a: #efede3; --ciel-b: #fbfaf6; --arete: rgba(28, 32, 36, 0.5);
   --ax-x: #c2410c; --ax-y: #15803d; --ax-z: #1d4ed8; --warn: #8a5300; --warn-soft: #f6e6c6;
-  --radius: 10px;
+  --radius: 16px;
   --sans: "Geist", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "Geist Mono", ui-monospace, Consolas, monospace;
   color-scheme: light;
@@ -82,9 +82,9 @@ label.btn input[type=file] { position: absolute; width: 1px; height: 1px; opacit
 .prive::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #2f9e63; }
 
 /* Espace de travail */
-.app { max-width: 1680px; margin: 0 auto; height: calc(100dvh - 59px); display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; padding: 10px 24px; }
+.app { max-width: 1680px; margin: 0 auto; height: calc(100dvh - 59px); display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; gap: 14px; padding: 12px 24px; }
 .barre { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
-.corps { display: grid; grid-template-columns: 250px minmax(0, 1fr) 300px; gap: 10px; min-height: 0; }
+.corps { display: grid; grid-template-columns: 260px minmax(0, 1fr) 320px; gap: 14px; min-height: 0; }
 .panneau { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .panneau > h2 { padding: 12px 14px 8px; font: 600 12px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--app-ink); }
 .defile { overflow: auto; min-height: 0; flex: 1; padding: 0 8px 10px; }
@@ -447,3 +447,18 @@ footer a:hover, footer button:hover { color: var(--ink); text-decoration: underl
 #remarques .cq .n-cq { margin-left: 6px; padding: 0 6px; border-radius: 9px; background: var(--warn-soft); color: var(--warn); font-weight: 600; font-size: 11px; }
 #remarques .cq li button { all: unset; cursor: pointer; text-decoration: underline dotted; }
 #remarques .cq li button:hover { color: var(--text); }
+
+/* Piste « Papier » : fond papier, cartes arrondies a ombre fine, selecteurs en segments, calcul mis en valeur */
+.panneau, #scene { border-color: transparent; box-shadow: 0 1px 0 #e6e2d6; }
+:root[data-theme="dark"] .panneau, :root[data-theme="dark"] #scene { border-color: var(--line); box-shadow: none; }
+.seg { background: var(--sunk); border-color: transparent; border-radius: 10px; padding: 3px; }
+.seg button { border-radius: 8px; padding: 6px 12px; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .09); }
+.btn { border-radius: 10px; min-height: 36px; }
+.puce { background: var(--sunk); border-color: transparent; padding: 3px 10px; }
+.groupe.calc { background: var(--warn-soft); border-radius: 12px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--warn) 22%, transparent); }
+.groupe.calc h4 { color: var(--warn); }
+.groupe.calc .net { display: flex; justify-content: space-between; align-items: baseline; margin: 8px 0 2px; padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--warn) 25%, transparent); }
+.groupe.calc .net span { font-size: 12.5px; color: var(--muted); }
+.groupe.calc .net b { font: 600 28px/1 var(--mono); letter-spacing: -.02em; color: var(--app-ink); }
+.groupe.calc .net b small { font-size: 14px; margin-left: 3px; font-weight: 500; }

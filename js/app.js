@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.16";
+import IFC from "./core.js?v=1.17";
 
-const VERSION = "1.16";
+const VERSION = "1.17";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -430,7 +430,7 @@ const RESERVEE_CONCEPTEUR = true;
     if (p.cmp) h += `<dl class="groupe cmp-fiche"><h4>Comparaison</h4><div class="stat-cmp" style="--c:${CMP[p.cmp].css}"><i></i>${CMP[p.cmp].nom}</div>${p.cmpInfo.length ? `<ul>${p.cmpInfo.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : `<p class="note">Aucune différence (tolérance 1 mm).</p>`}</dl>`;
     h += `<dl class="groupe"><h4>Identité</h4>${ligne(M.source === "step" ? "Sous-ensemble" : "Étage", nomEtage(p.etage))}${ligne("Matériau", p.materiau)}${ligne("Description", p.desc)}${ligne("Type d'objet", p.objType)}${ligne("GlobalId", p.gid, true)}</dl>`;
     if (p.hauteur != null) h += `<dl class="groupe"><h4>${p.ifc === "IFCDOOR" ? "Porte" : "Fenêtre"} ${CTL}</h4>${ligne("Largeur", `${p.largeur.toLocaleString("fr-CH")} mm`, true)}${ligne("Hauteur", `${p.hauteur.toLocaleString("fr-CH")} mm`, true)}${et ? ligne("Allège (depuis l'étage)", `${mm(bb.min[2] - et.z)} mm`, true) : ""}${ligne("Dans le mur", mur ? mur.nom : "—")}</dl>`;
-    if (p.surf) h += `<dl class="groupe"><h4>Surfaces du mur ${CTL}</h4>${ligne("Longueur", `${mm(p.surf.L)} mm`, true)}${ligne("Hauteur", `${mm(p.surf.h)} mm`, true)}${ligne("Épaisseur", `${mm(p.surf.T)} mm`, true)}${ligne("Surface brute", `${m2(p.surf.brute)} m²`, true)}${ligne("Ouvertures et découpes", `${p.surf.trous} (${m2(p.surf.brute - p.surf.nette)} m²)`, true)}${ligne("Surface nette", `${m2(p.surf.nette)} m²`, true)}</dl>${calculMur(p)}`;
+    if (p.surf) h += `${calculMur(p)}<dl class="groupe"><h4>Surfaces du mur ${CTL}</h4>${ligne("Longueur", `${mm(p.surf.L)} mm`, true)}${ligne("Hauteur", `${mm(p.surf.h)} mm`, true)}${ligne("Épaisseur", `${mm(p.surf.T)} mm`, true)}${ligne("Surface brute", `${m2(p.surf.brute)} m²`, true)}${ligne("Ouvertures et découpes", `${p.surf.trous} (${m2(p.surf.brute - p.surf.nette)} m²)`, true)}${ligne("Surface nette", `${m2(p.surf.nette)} m²`, true)}</dl>`;
     h += `<dl class="groupe"><h4>Encombrement mesuré ${CTL}</h4>${ligne("X", `${mm(d[0])} mm`, true)}${ligne("Y", `${mm(d[1])} mm`, true)}${ligne("Z", `${mm(d[2])} mm`, true)}${ligne("Niveau bas", `${mm(bb.min[2])} mm`, true)}</dl>`;
     for (const ps of p.psets) h += `<dl class="groupe"><h4>${esc(ps.nom)}</h4>${ps.props.map((x) => ligne(x.nom, x.val)).join("")}</dl>`;
     if (!p.psets.length) h += `<p class="note">Aucun jeu de propriétés (Pset) pour cet élément dans ce fichier.</p>`;
@@ -759,7 +759,7 @@ const RESERVEE_CONCEPTEUR = true;
     const o = M.produits.filter((x) => x.mur === p.id && (x.ifc === "IFCWINDOW" || x.ifc === "IFCDOOR"));
     const lg = o.map((x) => `<li><span>${esc(x.nom)}</span><span class="mono">${x.largeur} × ${x.hauteur} mm = ${m2f(x.largeur * x.hauteur / 1e6)}</span></li>`).join("");
     return `<dl class="groupe calc"><h4>Le calcul ${CTL}</h4>
-      <p class="formule"><b>${m2f(p.surf.brute)}</b> brute <i>(${(p.surf.L).toFixed(3).replace(".", ",")} m × ${(p.surf.h).toFixed(3).replace(".", ",")} m)</i><br>− <b>${m2f(p.surf.brute - p.surf.nette)}</b> de ${p.surf.trous} découpe${p.surf.trous > 1 ? "s" : ""} trouvée${p.surf.trous > 1 ? "s" : ""} dans la forme<br>= <b>${m2f(p.surf.nette)}</b> nette</p>
+      <p class="formule"><b>${m2f(p.surf.brute)}</b> brute <i>(${(p.surf.L).toFixed(3).replace(".", ",")} m × ${(p.surf.h).toFixed(3).replace(".", ",")} m)</i><br>− <b>${m2f(p.surf.brute - p.surf.nette)}</b> de ${p.surf.trous} découpe${p.surf.trous > 1 ? "s" : ""} trouvée${p.surf.trous > 1 ? "s" : ""} dans la forme</p><div class="net"><span>Surface nette</span><b>${(Math.round(p.surf.nette * 100) / 100).toLocaleString("fr-CH", { minimumFractionDigits: 2 })}<small>m²</small></b></div>
       ${o.length ? `<p class="note">Ouvertures rattachées à ce mur dans le fichier (${o.length}) :</p><ul class="calc-liste">${lg}</ul>` : `<p class="note">Aucune fenêtre ni porte rattachée à ce mur dans le fichier.</p>`}</dl>`;
   }
   function calculFacade(cle) {
@@ -894,7 +894,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.16", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.17", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     let dernier = null, attente = false, tDernier = Date.now();
     // garde-fou : un element dont le calcul bloque plus de 30 s est ignore, et la lecture repart sans lui
     veille = setInterval(() => {
@@ -923,12 +923,12 @@ const RESERVEE_CONCEPTEUR = true;
     const fin = () => { $("#chargement").hidden = true; };
     let res;
     try {
-      const { lireStep } = await import("./step.js?v=1.16");
+      const { lireStep } = await import("./step.js?v=1.17");
       res = await lireStep(f, (t) => { $("#chargementTxt").textContent = `${nom} · ${t}…`; });
     } catch (err) { fin(); toast(`Impossible de lire ce fichier STEP : ${err.message}`); return; }
     $("#chargementTxt").textContent = `${nom} · Conversion de la géométrie…`;
     const direct = () => setTimeout(() => { try { afficherModele(IFC.depuisStep(res, { nom }), nom, performance.now() - t0); } catch (err) { toast(`Impossible de lire ce fichier STEP : ${err.message}`); } fin(); }, 30);
-    let w; try { w = new Worker(new URL("./worker.js?v=1.16", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    let w; try { w = new Worker(new URL("./worker.js?v=1.17", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     w.onmessage = (e) => { if (e.data.prog != null) return; w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier STEP : ${e.data.err}`); };
     w.onerror = (e) => { e.preventDefault(); w.terminate(); fin(); toast("Impossible de convertir ce fichier STEP (le calcul en arrière-plan a échoué)."); }; // les tableaux ont ete transferes : pas de reprise directe
     w.postMessage({ step: res, nom }, res.meshes.flatMap((m) => [m.pos.buffer, m.idx.buffer]));
@@ -1011,7 +1011,7 @@ const RESERVEE_CONCEPTEUR = true;
   new MutationObserver(envoyer).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   dimensionner();
-  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.16")).testerBoite(cible) };
+  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.17")).testerBoite(cible) };
 
 
 // ======================= Bandeau commun de la famille =======================
