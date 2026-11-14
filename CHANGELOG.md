@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.17 — 14 novembre 2026
+
+- Nouveauté : nouveau look « Papier » : fond papier chaud, panneaux arrondis aux ombres fines, sélecteurs de vue en segments, et la surface nette d'un mur en grand dans « Le calcul ». Le mode sombre est conservé.
+
 ## 1.16 — 13 novembre 2026
 
 - Nouveauté : le métré montre son calcul. Dans la liste Façades, « Voir le calcul » déplie brute − ouvertures = nette, avec chaque mur et chaque fenêtre ou porte (largeur × hauteur) ; la fiche d'un mur détaille de même sa surface nette.
