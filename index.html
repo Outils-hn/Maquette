@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=1.18">
+<link rel="stylesheet" href="styles.css?v=1.19">
 </head>
 <body>
 <header class="topbar">
@@ -47,7 +47,15 @@
     <span class="grow"></span>
     <button type="button" class="btn" id="bCompare" disabled title="Comparer avec une autre version : choisissez le fichier de la nouvelle version (le fichier ouvert sert d'ancienne version)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v14M8 17l-3-3M8 17l3-3M16 21V7M16 7l-3 3M16 7l3 3"/></svg>Comparer</button>
     <input id="ouvrir3" type="file" accept=".ifc,.ifczip,.zip,.stp,.step" hidden>
-    <button type="button" class="btn" id="bStep" disabled title="Exporter des éléments en STEP pour AutoCAD ou un logiciel 3D"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Exporter en STEP</button>
+    <div class="exporter">
+      <button type="button" class="btn" id="bExporter" disabled aria-haspopup="menu" aria-expanded="false" aria-controls="menuExport" title="Exporter : DXF, relevé gros-œuvre, STEP, copie pour Excel (E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Exporter<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+      <div id="menuExport" role="menu" aria-label="Exporter" hidden>
+        <button type="button" role="menuitem" class="mi" id="bDxf" disabled title="Choisissez une coupe ou une face (A à D) pour exporter en DXF"><b>DXF de la coupe ou de la vue</b><small>Choisissez d'abord une coupe ou une vue</small></button>
+        <button type="button" role="menuitem" class="mi" id="bReleve" disabled title="Relevé gros-œuvre : plans par niveau, axes et niveaux en DXF pour AutoCAD"><b>Relevé gros-œuvre (DXF)</b><small>Un plan par niveau, axes et cotes déduits</small></button>
+        <button type="button" role="menuitem" class="mi" id="bStep" disabled title="Exporter des éléments en STEP pour AutoCAD ou un logiciel 3D"><b>Éléments en STEP</b><small>Pour AutoCAD ou un logiciel 3D</small></button>
+        <button type="button" role="menuitem" class="mi" id="bCopier" disabled title="Copie la liste au format tableau, à coller dans Excel"><b>Copier la liste pour Excel</b><small>La liste affichée en bas</small></button>
+      </div>
+    </div>
     <label class="btn primaire" for="ouvrir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Ouvrir un fichier<input id="ouvrir" type="file" accept=".ifc,.ifczip,.zip,.stp,.step"></label>
   </div>
 
@@ -101,8 +109,7 @@
         </div>
         <div class="coupe" title="Coupe"><label for="axeCoupe" class="ico-lbl"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h18"/><path d="M6 6h12v12H6z" stroke-dasharray="2 2.5"/></svg><span class="sr">Coupe</span></label>
           <select id="axeCoupe" title="Coupe"><option value="">Sans coupe</option><option value="z">Coupe en plan</option><option value="x">Coupe ⊥ X</option><option value="y">Coupe ⊥ Y</option></select>
-          <input type="range" id="hauteur" min="0" max="1000" value="500" disabled aria-label="Position de la coupe"><span class="pos" role="group" aria-label="Position exacte de la coupe"><button type="button" class="mini pm" id="coupeMoins" title="Reculer de 1 mm (Maj : 10 mm · Alt : 0,1 mm)" aria-label="Reculer la coupe" disabled>−</button><input id="valCoupe" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" disabled placeholder="—" title="Position exacte en mm : tapez une valeur puis Entrée, ou utilisez les flèches ↑ ↓ (Maj : 10 mm · Alt : 0,1 mm · Page : 100 mm)" aria-label="Position exacte de la coupe, en millimètres"><button type="button" class="mini pm" id="coupePlus" title="Avancer de 1 mm (Maj : 10 mm · Alt : 0,1 mm)" aria-label="Avancer la coupe" disabled>+</button><span class="u" aria-hidden="true">mm</span></span>
-          <button type="button" class="mini dxf" id="bDxf" disabled title="Choisissez une coupe ou une face (A à D) pour exporter en DXF">DXF</button></div>
+          <input type="range" id="hauteur" min="0" max="1000" value="500" disabled aria-label="Position de la coupe"><span class="pos" role="group" aria-label="Position exacte de la coupe"><button type="button" class="mini pm" id="coupeMoins" title="Reculer de 1 mm (Maj : 10 mm · Alt : 0,1 mm)" aria-label="Reculer la coupe" disabled>−</button><input id="valCoupe" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" disabled placeholder="—" title="Position exacte en mm : tapez une valeur puis Entrée, ou utilisez les flèches ↑ ↓ (Maj : 10 mm · Alt : 0,1 mm · Page : 100 mm)" aria-label="Position exacte de la coupe, en millimètres"><button type="button" class="mini pm" id="coupePlus" title="Avancer de 1 mm (Maj : 10 mm · Alt : 0,1 mm)" aria-label="Avancer la coupe" disabled>+</button><span class="u" aria-hidden="true">mm</span></span></div>
         <div class="seg outils-ico" role="group" aria-label="Outils">
           <button type="button" id="bMesure" aria-pressed="false" title="Mesurer une distance (M)" aria-label="Mesurer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17 17 3l4 4L7 21z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/></svg></button>
           <button type="button" id="bOrienter" aria-pressed="false" aria-expanded="false" aria-controls="panOrient" title="Orienter le modèle : poser sur une face ou tourner de 90°" aria-label="Orienter le modèle" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v4h-4"/></svg></button>
@@ -132,13 +139,13 @@
             <label class="btn accent" for="ouvrir2">Choisir un fichier<input id="ouvrir2" type="file" accept=".ifc,.ifczip,.zip,.stp,.step"></label>
             <button type="button" class="btn" id="bExemple">Voir un exemple</button>
           </div>
-          <ul>
-            <li>3D, plans et élévations, coupes</li>
-            <li>Fiche de chaque élément : matériau, dimensions, propriétés</li>
-            <li>Listes des fenêtres et des murs, à copier dans Excel</li>
-            <li>Fichiers STEP (pièces et assemblages fournisseurs) : 3D, mesures, coupes</li>
-            <li>Mesures et coupes DXF pour AutoCAD</li>
-          </ul>
+          <div class="taches" role="group" aria-label="Partir de ce que vous voulez faire">
+            <p class="taches-titre">Ou partez de ce que vous voulez faire</p>
+            <button type="button" class="tache" data-tache="metre"><b>Métrer des façades</b><small>Surfaces brutes et nettes, ouvertures, tableaux, avec le calcul</small></button>
+            <button type="button" class="tache" data-tache="releve"><b>Relever le gros-œuvre en DXF</b><small>Un plan par niveau, axes et cotes déduits</small></button>
+            <button type="button" class="tache" data-tache="compare"><b>Comparer deux versions</b><small>Ce qui a été ajouté, supprimé ou déplacé</small></button>
+            <button type="button" class="tache" data-tache="step"><b>Regarder une pièce STEP</b><small>3D, mesures, coupes et vues DXF</small></button>
+          </div>
         </div>
       </div>
       <div id="chargement" hidden><div><div class="tourne"></div><span id="chargementTxt">Lecture de la maquette…</span></div></div>
@@ -161,15 +168,13 @@
       <button type="button" role="tab" data-onglet="fac" aria-selected="false">Façades<span></span></button>
       <button type="button" role="tab" data-onglet="tout" aria-selected="false">Tous les éléments<span></span></button>
       <span class="grow"></span>
-      <button type="button" class="btn" id="bReleve" title="Relevé gros-œuvre : plans par niveau, axes et niveaux en DXF pour AutoCAD" disabled>Relevé gros-œuvre (DXF)</button>
-      <button type="button" class="btn" id="bCopier" title="Copie la liste au format tableau, à coller dans Excel" disabled>Copier pour Excel</button>
     </div>
     <div id="tables"></div>
     <textarea id="secours" hidden aria-label="Tableau à copier"></textarea>
   </section>
 </div>
 
-<footer>Maquette v1.18 · <button type="button" id="aboutBtn">Conçu par Hugo N. · Imaginé par Virgile G.</button> · 2026 · <a href="https://outils-hn.github.io/?app=Maquette&amp;v=1.18&amp;page=%2FMaquette%2F" target="_blank" rel="noopener noreferrer">Suggestion / bug</a></footer>
+<footer>Maquette v1.19 · <button type="button" id="raccourcisBtn">Raccourcis</button> · <button type="button" id="aboutBtn">Conçu par Hugo N. · Imaginé par Virgile G.</button> · 2026 · <a href="https://outils-hn.github.io/?app=Maquette&amp;v=1.19&amp;page=%2FMaquette%2F" target="_blank" rel="noopener noreferrer">Suggestion / bug</a></footer>
 
 <dialog id="dDxf" aria-labelledby="dxf-titre">
   <div class="dxf-corps">
@@ -225,7 +230,7 @@
   <div class="apropos">
     <h3 id="da-titre">À propos</h3>
     <div class="about-head"><svg width="40" height="40" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5.5" fill="#4D7C0F"/><g transform="translate(4.56 4.56) scale(.62)" fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"><path d="M12 2.5 21 7.5v9L12 21.5 3 16.5v-9z"/><path d="M12 12 21 7.5M12 12 3 7.5M12 12v9.5"/></g></svg>
-      <div><b>Maquette</b><span class="hint">Version 1.18</span></div></div>
+      <div><b>Maquette</b><span class="hint">Version 1.19</span></div></div>
     <p>Conçu et développé par Hugo N.<br>Imaginé par Virgile G.</p>
     <p class="hint">Ouvrir les maquettes IFC reçues des architectes : voir, interroger, mesurer, lister, couper en DXF et exporter en STEP. Le fichier reste sur votre ordinateur.</p>
     <p class="hint">Dernière mise à jour : 13 novembre 2026</p>
@@ -233,7 +238,7 @@
   </div>
 </dialog>
 <div class="toast" id="toast" role="status"></div>
-<script type="module" src="js/app.js?v=1.18"></script>
+<script type="module" src="js/app.js?v=1.19"></script>
 <script>
   // Hors ligne : la copie de l'appli est gardee sur le poste (voir sw.js)
   if ("serviceWorker" in navigator && location.protocol !== "file:") addEventListener("load", () => {

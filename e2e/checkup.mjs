@@ -24,6 +24,7 @@ const exemple = async (page) => { await page.click("#bExemple"); await page.wait
 const txt = (page, s) => page.locator(s).innerText().then((t) => t.replace(/\s+/g, " ").trim());
 const pasDebordement = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
 
+const exp = async (page, sel) => { if (!(await page.locator(sel).isVisible())) await page.click("#bExporter"); await page.click(sel); };
 await step("Ecran d'accueil", async () => {
   const { c, page } = await ouvrir();
   verif("Ecran d'accueil : ouvrir un fichier ou voir un exemple", await page.locator("#accueil").isVisible() && await page.locator("#bExemple").isVisible());
@@ -49,7 +50,7 @@ await step("Exemple : lecture et affichage", async () => {
   verif("Fiche d'une fenetre : largeur, hauteur, allege, mur", /Largeur 1 400 mm/.test(fiche) && /Hauteur 1 500 mm/.test(fiche) && /Allège.*800 mm/.test(fiche) && /Dans le mur Wall_Right/.test(fiche), fiche.slice(0, 160));
   await page.click('[data-onglet="murs"]');
   verif("Murs et surfaces : 6 murs, surfaces nettes", (await page.locator("#tables tbody tr").count()) === 6 && /Total 6 murs/.test(await txt(page, "#tables tfoot")));
-  await page.click("#bCopier"); await page.waitForTimeout(300);
+  await exp(page, "#bCopier"); await page.waitForTimeout(300);
   const presse = await page.evaluate(() => navigator.clipboard.readText().catch(() => ""));
   verif("Copier pour Excel : tableau avec en-tetes, separe par tabulations", /^Nom\tÉtage\tLongueur \(mm\)/.test(presse) && presse.split("\n").length === 9, presse.slice(0, 60));
   await page.screenshot({ path: `${OUT}/03-murs.png` });
@@ -64,7 +65,7 @@ await step("Vues, coupe et DXF", async () => {
   await page.screenshot({ path: `${OUT}/04-plan.png` });
   await page.selectOption("#axeCoupe", "x"); await page.waitForTimeout(400);
   await page.screenshot({ path: `${OUT}/05-coupe-x.png` });
-  await page.click("#bDxf"); await page.waitForTimeout(300);
+  await exp(page, "#bDxf"); await page.waitForTimeout(300);
   verif("Fenetre DXF : apercu et nombre de lignes", (await page.locator("#apercu line").count()) > 20 && /traits/.test(await txt(page, "#dInfo")), await txt(page, "#dInfo"));
   await page.screenshot({ path: `${OUT}/06-dxf.png` });
   const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 5000 }), page.click("#dTelecharger")]);
@@ -98,7 +99,7 @@ await step("Facades : metre et elevation cotee", async () => {
   await page.click('[data-onglet="fac"]');
   await page.click('[data-vue="a"]'); await page.waitForTimeout(200);
   verif("Face A affichee : le bouton DXF exporte son elevation", !(await page.isDisabled("#bDxf")));
-  await page.click("#bDxf"); await page.waitForTimeout(300);
+  await exp(page, "#bDxf"); await page.waitForTimeout(300);
   verif("Fenetre DXF d'elevation : cotes et niveaux", /Élévation DXF : Face A/.test(await txt(page, "#dxf-titre")) && (await page.locator("#apercu line.c-COTES").count()) > 5 && (await page.locator("#apercu text").count()) > 5, await txt(page, "#dInfo"));
   await page.screenshot({ path: `${OUT}/12-elevation.png` });
   const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 5000 }), page.click("#dTelecharger")]);
@@ -112,7 +113,7 @@ await step("Facades : metre et elevation cotee", async () => {
 await step("Export STEP", async () => {
   const { c, page } = await ouvrir();
   await exemple(page);
-  await page.click("#bStep"); await page.waitForTimeout(200);
+  await exp(page, "#bStep"); await page.waitForTimeout(200);
   verif("Fenetre STEP : sans selection, l'element selectionne est grise", await page.locator('#formStep input[value="sel"]').isDisabled() && /71 pi/.test(await txt(page, "#sInfo")), await txt(page, "#sInfo"));
   await page.screenshot({ path: `${OUT}/10-step.png` });
   const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 8000 }), page.click("#sOk")]);
@@ -205,7 +206,7 @@ await step("Fichier STEP (OpenCascade dans une boite sans reseau)", async () => 
   verif("STEP : DXF desactive en 3D, active dans une vue", await page.isDisabled("#bDxf"));
   await page.click('[data-vue="a"]'); await page.waitForTimeout(300);
   verif("STEP : DXF actif dans la vue avant", await page.isEnabled("#bDxf"));
-  await page.click("#bDxf");
+  await exp(page, "#bDxf");
   await page.waitForFunction(() => /traits/.test(document.querySelector("#dInfo")?.textContent || ""), null, { timeout: 60000 });
   const infoV = await txt(page, "#dInfo");
   verif("STEP : fenetre DXF de la vue (apercu, cotes, mention a controler)", (await page.locator("#apercu line").count()) > 20 && (await page.locator("#apercu text").count()) > 0 && /à contrôler/i.test(await txt(page, "#dAvert")) && /vue-avant\.dxf/.test(infoV) && await page.locator("#lCaches").isVisible() && await page.locator("#lVus").isHidden(), infoV);
@@ -285,8 +286,8 @@ await step("Releve gros-oeuvre", async () => {
   const { readFileSync } = await import("node:fs");
   const { c, page } = await ouvrir();
   await exemple(page);
-  verif("Releve : bouton visible pour un IFC", await page.locator("#bReleve").isVisible() && await page.isEnabled("#bReleve"));
-  await page.click("#bReleve");
+  await page.click("#bExporter"); verif("Releve : bouton visible pour un IFC", await page.locator("#bReleve").isVisible() && await page.isEnabled("#bReleve")); await page.keyboard.press("Escape");
+  await exp(page, "#bReleve");
   await page.waitForFunction(() => /traits/.test(document.querySelector("#dInfo")?.textContent || ""), null, { timeout: 30000 });
   verif("Releve : apercu (traits, bulles d'axes, textes) et options", (await page.locator("#apercu line").count()) > 100 && (await page.locator("#apercu circle").count()) >= 8 && (await page.locator("#apercu text").count()) > 20 && await page.locator("#lAxes").isVisible() && await page.locator("#lVus").isHidden());
   verif("Releve : la mention « à contrôler » et les axes deduits sont signales", /à contrôler/i.test(await txt(page, "#dAvert")) && /déduits/.test(await txt(page, "#dAvert")), await txt(page, "#dAvert"));
@@ -300,6 +301,38 @@ await step("Releve gros-oeuvre", async () => {
   verif("Releve : DXF (calques GO-, axes en tirets-points, bulles, mention a controler)", /releve-gros-oeuvre\.dxf$/.test(dl.suggestedFilename()) && /GO-MUR/.test(dx) && /GO-AXES/.test(dx) && /GO-NIVEAUX/.test(dx) && /CENTER/.test(dx) && /\nCIRCLE\r/.test(dx) && /A CONTROLER/.test(dx) && !/NaN|undefined/.test(dx), dl.suggestedFilename());
   await page.click("#dFermer");
   await c.close();
+});
+
+await step("Ergonomie : menu Exporter, raccourcis en pied de page, accueil par tache", async () => {
+  const { c, page } = await ouvrir();
+  verif("Accueil : 4 taches proposees", (await page.locator("[data-tache]").count()) === 4);
+  verif("Raccourcis : plus dans le selecteur d'applis, bouton en pied de page", (await page.locator("#appsList #raccourcisBtn").count()) === 0 && await page.locator("footer #raccourcisBtn").isVisible());
+  await page.click("footer #raccourcisBtn"); await page.waitForTimeout(150);
+  verif("Pied de page : la liste des raccourcis s'ouvre (E, O, 1 a 6)", await page.locator("#dRaccourcis[open]").count() === 1 && /Exporter/.test(await txt(page, "#dRaccourcis")));
+  await page.keyboard.press("Escape");
+  verif("Menu Exporter inactif avant d'ouvrir un fichier", await page.isDisabled("#bExporter"));
+  const [fc] = await Promise.all([page.waitForEvent("filechooser"), page.click('[data-tache="metre"]')]);
+  await fc.setFiles(new URL("../exemples/TinyHouse.ifc", import.meta.url).pathname);
+  await page.waitForFunction(() => window.__viewer?.M, null, { timeout: 15000 }); await page.waitForTimeout(700);
+  verif("Tache « metrer » : l'onglet Facades s'ouvre tout seul apres le fichier", (await page.locator('[data-onglet="fac"]').getAttribute("aria-selected")) === "true", await txt(page, "#tables").then((t) => t.slice(0, 60)));
+  await page.click("#bExporter"); await page.waitForTimeout(100);
+  verif("Menu Exporter : 4 entrees dont le releve et la copie Excel", (await page.locator("#menuExport button:visible").count()) === 4 && await page.locator("#bCopier").isEnabled());
+  await page.screenshot({ path: `${OUT}/16-menu-exporter.png` });
+  await page.keyboard.press("Escape"); await page.waitForTimeout(80);
+  verif("Menu Exporter : Echap le referme", await page.locator("#menuExport").isHidden());
+  await page.keyboard.press("e"); await page.waitForTimeout(100);
+  verif("Raccourci E : ouvre le menu Exporter", await page.locator("#menuExport").isVisible());
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("2"); await page.waitForTimeout(250);
+  verif("Raccourci 2 : passe a la vue Plan", (await page.locator('[data-vue="plan"]').getAttribute("aria-pressed")) === "true");
+  await page.keyboard.press("1"); await page.waitForTimeout(150);
+  await c.close();
+  const r = await ouvrir(); await exemple(r.page);
+  verif("Dernier onglet de liste retenu d'une visite a l'autre", (await r.page.locator('[data-onglet="fac"]').getAttribute("aria-selected")) === "false");
+  await r.page.click('[data-onglet="murs"]');
+  const stock = await r.page.evaluate(() => localStorage.getItem("maquette-ui"));
+  verif("Onglet choisi enregistre sur le poste", /"onglet":"murs"/.test(stock), stock);
+  await r.c.close();
 });
 
 await step("Comparaison de deux versions", async () => {

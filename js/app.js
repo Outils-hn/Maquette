@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.18";
+import IFC from "./core.js?v=1.19";
 
-const VERSION = "1.18";
+const VERSION = "1.19";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = true;
 
@@ -541,6 +541,7 @@ const RESERVEE_CONCEPTEUR = true;
     document.querySelector(".coupe").classList.toggle("on", !!$("#axeCoupe").value); // reglages de la coupe visibles seulement quand une coupe est active
     const b = $("#bDxf"), st = !!M && M.source === "step", v2 = st && etat.vue2d && NOMS2D[etat.vue2d];
     b.disabled = !M || !(etat.coupe || (st ? v2 : etat.face));
+    $("#bExporter").classList.toggle("pret", !b.disabled); // pastille : un DXF est pret a exporter
     b.title = etat.coupe ? "Exporter la coupe en DXF pour AutoCAD" : st ? (v2 ? `Exporter la vue ${NOMS2D[etat.vue2d].toLowerCase()} en DXF : arêtes, trous et cotes` : "Choisissez une vue (Dessus, Avant, Droite…) pour exporter en DXF") : etat.face ? "Exporter l'élévation cotée de cette face en DXF" : "Choisissez une coupe ou une face (A à D) pour exporter en DXF";
   }
   const ICONE_AVERT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17.2v.1"/></svg>';
@@ -610,6 +611,16 @@ const RESERVEE_CONCEPTEUR = true;
     $("#dTelecharger").disabled = $("#dCopier").disabled = false;
   }
   $("#bReleve").addEventListener("click", () => { if (M && M.source !== "step") ouvrirDxf("releve"); });
+  // menu Exporter : un seul bouton regroupe DXF, releve, STEP et copie Excel
+  const menuExp = $("#menuExport"), btnExp = $("#bExporter");
+  const ouvrirMenuExp = (o) => { menuExp.hidden = !o; btnExp.setAttribute("aria-expanded", String(o)); if (o) (menuExp.querySelector("button:not(:disabled):not([hidden])") || btnExp).focus(); };
+  btnExp.addEventListener("click", () => ouvrirMenuExp(menuExp.hidden));
+  menuExp.addEventListener("click", () => ouvrirMenuExp(false));
+  document.addEventListener("click", (e) => { if (!menuExp.hidden && !e.target.closest(".exporter")) ouvrirMenuExp(false); });
+  menuExp.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.stopPropagation(); ouvrirMenuExp(false); btnExp.focus(); }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); const L = [...menuExp.querySelectorAll("button:not(:disabled):not([hidden])")]; const k = L.indexOf(document.activeElement); L[(k + (e.key === "ArrowDown" ? 1 : L.length - 1)) % L.length]?.focus(); }
+  });
   $("#bDxf").addEventListener("click", () => ouvrirDxf(etat.coupe ? null : M.source === "step" ? "2d" : etat.face));
   for (const id of ["#dVus", "#dCotes", "#dCaches", "#dGen", "#dTrous", "#dEntr", "#dAxes", "#dGoCotes", "#dNiv"]) $(id).addEventListener("change", relancerDxf);
   $("#dFermer").addEventListener("click", () => dD.close());
@@ -679,14 +690,18 @@ const RESERVEE_CONCEPTEUR = true;
   document.addEventListener("keydown", (e) => {
     if (e.target.matches("input, textarea, select") || document.querySelector("dialog[open]")) return;
     if (e.key === "Escape") { if (etat.poser) basculerPoser(false); else if (etat.mesure) basculerMesure(false); else choisir(null); }
+    if ((e.key === "o" || e.key === "O") && !e.ctrlKey && !e.metaKey) { e.preventDefault(); $("#ouvrir").click(); return; }
     if (!M || document.querySelector("dialog[open]")) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if ((e.key === "e" || e.key === "E") && !$("#bExporter").disabled) { e.preventDefault(); ouvrirMenuExp(menuExp.hidden); return; }
+    if (/^[1-6]$/.test(e.key)) { const L = [...document.querySelectorAll("[data-vue]")].filter((b) => !b.hidden); const b = L[+e.key - 1]; if (b) b.click(); return; }
     if (e.key === "m" || e.key === "M") basculerMesure();
     if (e.key === "f" || e.key === "F") etat.sel != null ? cadrerSur(etat.sel) : cadrer();
   });
 
   // ---------- Disposition « Atelier » : rail, tiroir, fiche, listes, separateurs (memorises sur ce poste) ----------
   const appEl = document.querySelector(".app");
-  const ui = { g: 280, d: 320, b: 240, gauche: "contenu", fiche: true, listes: true };
+  const ui = { g: 280, d: 320, b: 240, gauche: "contenu", fiche: true, listes: true, onglet: "fen" };
   try { Object.assign(ui, JSON.parse(localStorage.getItem("maquette-ui") || "{}")); } catch (e) { /* ignore */ }
   const LIM = { g: [200, 620], d: [260, 680], b: [120, 0.75] };
   function majUi(sauver = true) {
@@ -813,6 +828,7 @@ const RESERVEE_CONCEPTEUR = true;
   const avertListe = (k) => `<p class="avert-calc" id="avertListe">${avertHtml(`${AVERT_LISTE[k]} Vérifiez-les avant tout devis, commande ou plan.`)}</p>`;
   function onglet(k) {
     ongletActif = k;
+    if (["fen", "murs", "fac"].includes(k) && ui.onglet !== k) { ui.onglet = k; try { localStorage.setItem("maquette-ui", JSON.stringify(ui)); } catch (e) { /* ignore */ } } // onglet de liste retenu d'une visite a l'autre
     if (!M) return;
     document.querySelectorAll("[data-onglet]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.onglet === k)));
     const L = LISTES[k]; const lignes = [];
@@ -849,6 +865,7 @@ const RESERVEE_CONCEPTEUR = true;
 
   // ---------- Ouvrir un fichier (lu localement, jamais envoye) ----------
   let apres = null; // si renseigne : au lieu d'afficher le prochain modele lu, on le remet a cette fonction (comparaison)
+  let dejaOuvert = false;
   function afficherModele(m, nom, ms) {
     if (apres) { const f = apres; apres = null; f(m, nom, ms); return; }
     if (!m.comparaison) { etat.cmp = null; $("#zoneCmp").hidden = true; }
@@ -864,11 +881,12 @@ const RESERVEE_CONCEPTEUR = true;
     document.querySelectorAll("[data-vue]").forEach((b) => { const k = b.dataset.vue; if (k === "3d") return; const l = (estStep ? LIB_STEP : LIB)[k]; b.hidden = !l; if (l) { b.textContent = l[0]; b.title = l[1]; } });
     document.querySelectorAll('[data-onglet="fen"], [data-onglet="murs"], [data-onglet="fac"]').forEach((b) => { b.hidden = estStep || !!m.comparaison; });
     $('[data-onglet="ecarts"]').hidden = !m.comparaison;
+    if (!dejaOuvert && ["fen", "murs", "fac"].includes(ui.onglet)) ongletActif = ui.onglet; dejaOuvert = true; // 1re ouverture : retrouve le dernier onglet
     if (m.comparaison) ongletActif = "ecarts"; else if (estStep) ongletActif = "tout"; else if (ongletActif === "tout" || ongletActif === "ecarts") ongletActif = "fen";
     $("#bCompare").disabled = false; $("#bReleve").hidden = estStep || !!m.comparaison; $("#bReleve").disabled = false;
     $("#bOrienter").hidden = !estStep || !!m.comparaison; $("#panOrient").hidden = true; $("#bOrienter").setAttribute("aria-expanded", "false"); majOrient();
     $("#bStep").title = estStep ? "Cette maquette est déjà un fichier STEP" : "Exporter des éléments en STEP pour AutoCAD ou un logiciel 3D";
-    $("#accueil").hidden = true; $("#bCopier").disabled = false; $("#bStep").disabled = estStep;
+    $("#accueil").hidden = true; $("#bExporter").disabled = false; $("#bCopier").disabled = false; $("#bStep").disabled = estStep;
     construire(); arbre(); onglet(ongletActif); afficherProps(); majOutils();
     $("#fichier").textContent = nom; document.title = `${nom} — Maquette`;
     $("#infos").textContent = `${m.schema}${m.logiciel ? ` · ${m.logiciel}` : ""} · ${m.produits.length} ${estStep ? "pièces" : "éléments"} · lu en ${ms < 1000 ? `${Math.max(1, Math.round(ms))} ms` : `${(ms / 1000).toFixed(1).replace(".", ",")} s`}`;
@@ -882,6 +900,7 @@ const RESERVEE_CONCEPTEUR = true;
     if (!nbRq) $("#remarques").innerHTML = `<p class="vide">Aucune remarque : tout a été lu et dessiné, et le contrôle du modèle n'a rien relevé.</p>`;
     indexRech = null; if (ui.gauche === "recherche") chercher();
     dimensionner(); vue("3d");
+    if (tacheApres) { const t = tacheApres; tacheApres = null; setTimeout(() => lancerTache(t), 80); }
   }
   // Lecture dans un travailleur en arriere-plan (la page reste fluide) ; a defaut, directement
   // source : texte IFC (exemple) ou fichier choisi (.ifc / .ifczip, lu et decompresse dans le worker)
@@ -895,7 +914,7 @@ const RESERVEE_CONCEPTEUR = true;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.18", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.19", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     let dernier = null, attente = false, tDernier = Date.now();
     // garde-fou : un element dont le calcul bloque plus de 30 s est ignore, et la lecture repart sans lui
     veille = setInterval(() => {
@@ -924,19 +943,20 @@ const RESERVEE_CONCEPTEUR = true;
     const fin = () => { $("#chargement").hidden = true; };
     let res;
     try {
-      const { lireStep } = await import("./step.js?v=1.18");
+      const { lireStep } = await import("./step.js?v=1.19");
       res = await lireStep(f, (t) => { $("#chargementTxt").textContent = `${nom} · ${t}…`; });
     } catch (err) { fin(); toast(`Impossible de lire ce fichier STEP : ${err.message}`); return; }
     $("#chargementTxt").textContent = `${nom} · Conversion de la géométrie…`;
     const direct = () => setTimeout(() => { try { afficherModele(IFC.depuisStep(res, { nom }), nom, performance.now() - t0); } catch (err) { toast(`Impossible de lire ce fichier STEP : ${err.message}`); } fin(); }, 30);
-    let w; try { w = new Worker(new URL("./worker.js?v=1.18", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    let w; try { w = new Worker(new URL("./worker.js?v=1.19", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     w.onmessage = (e) => { if (e.data.prog != null) return; w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier STEP : ${e.data.err}`); };
     w.onerror = (e) => { e.preventDefault(); w.terminate(); fin(); toast("Impossible de convertir ce fichier STEP (le calcul en arrière-plan a échoué)."); }; // les tableaux ont ete transferes : pas de reprise directe
     w.postMessage({ step: res, nom }, res.meshes.flatMap((m) => [m.pos.buffer, m.idx.buffer]));
   }
+  let tacheApres = null; // action a lancer des que le fichier choisi depuis l'accueil est affiche
   function lireFichier(f, suite) {
     if (!f) return;
-    apres = suite || null;
+    apres = suite || null; tacheApres = null;
     if (/\.(stp|step)$/i.test(f.name)) { lireStepFichier(f); return; }
     if (!/\.(ifc|ifczip|zip)$/i.test(f.name)) { toast("Choisissez un fichier .ifc, .ifczip ou .stp (les fichiers Revit .rvt ne s'ouvrent pas : demandez l'export IFC)."); return; }
     lire(f, f.name);
@@ -990,7 +1010,16 @@ const RESERVEE_CONCEPTEUR = true;
   $("#cmpFond").addEventListener("change", (e) => { if (etat.cmp) { etat.cmp.fond = e.target.checked; sigPrec = null; envoyer(); } });
   $("#cmpInverser").addEventListener("click", () => { const k = etat.cmp; if (k) lancerComparaison(k.B, k.nomB, k.A, k.nomA); });
   $("#cmpQuitter").addEventListener("click", () => { const k = etat.cmp; if (!k) return; etat.cmp = null; afficherModele(k.B, k.nomB, 0); $("#infos").textContent = "Retour à la nouvelle version"; });
-  $("#ouvrir2").addEventListener("change", (e) => { lireFichier(e.target.files[0]); e.target.value = ""; });
+  let tacheDemandee = null;
+  document.querySelectorAll("[data-tache]").forEach((b) => b.addEventListener("click", () => { tacheDemandee = b.dataset.tache; $("#ouvrir2").click(); }));
+  $("#ouvrir2").addEventListener("change", (e) => { const t = tacheDemandee; tacheDemandee = null; lireFichier(e.target.files[0]); tacheApres = t; e.target.value = ""; });
+  $("#ouvrir2").addEventListener("cancel", () => { tacheDemandee = null; });
+  function lancerTache(t) {
+    const step = M.source === "step";
+    if (t === "metre") { if (step) return toast("Le métré demande une maquette IFC : ce fichier est un STEP."); onglet("fac"); }
+    else if (t === "releve") { if (step) return toast("Le relevé gros-œuvre demande une maquette IFC : ce fichier est un STEP."); ouvrirDxf("releve"); }
+    else if (t === "compare") $("#bCompare").click();
+  }
   $("#bExemple").addEventListener("click", async () => {
     try { const r = await fetch("exemples/TinyHouse.ifc"); if (!r.ok) throw new Error(r.status); lire(await r.text(), "TinyHouse.ifc (exemple)"); }
     catch { toast("Exemple indisponible pour le moment."); }
@@ -1012,7 +1041,7 @@ const RESERVEE_CONCEPTEUR = true;
   new MutationObserver(envoyer).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   dimensionner();
-  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.18")).testerBoite(cible) };
+  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.19")).testerBoite(cible) };
 
 
 // ======================= Bandeau commun de la famille =======================
@@ -1125,6 +1154,9 @@ el("rechercheBtn").addEventListener("click", () => window.open("https://outils-h
 (function raccourcisAide() {
   const lignes = [
     [["Ctrl", "K"], "Rechercher dans toutes les applis"],
+    [["O"], "Ouvrir un fichier"],
+    [["E"], "Ouvrir le menu Exporter"],
+    [["1"], "Vue 3D (puis 2 à 6 : Plan ou Dessus, A à D, selon les vues proposées)"],
     [["M"], "Mesurer une distance"],
     [["F"], "Cadrer la maquette ou l'élément choisi"],
     [["Échap"], "Quitter la mesure, désélectionner"],
@@ -1135,8 +1167,7 @@ el("rechercheBtn").addEventListener("click", () => window.open("https://outils-h
   d.id = "dRaccourcis"; d.setAttribute("aria-labelledby", "dr-titre");
   d.innerHTML = `<div class="apropos"><h3 id="dr-titre">Raccourcis clavier</h3>${lignes.map(([t, x]) => `<div style="display:flex;justify-content:space-between;gap:16px;padding:8px 0;border-top:1px solid var(--line)"><span>${x}</span><span style="display:flex;gap:4px;flex:none">${t.map(kbd).join("")}</span></div>`).join("")}<form method="dialog" class="actions"><button class="btn primaire">Fermer</button></form></div>`;
   document.body.appendChild(d);
-  el("appsList").insertAdjacentHTML("beforeend", `<div class="apps-sep" role="separator"></div><a href="#raccourcis" id="raccourcisBtn"><span class="sw ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M7 16h10"/></svg></span><span class="nm">Raccourcis</span><span class="rl">Touches du clavier · ?</span></a>`);
-  el("raccourcisBtn").addEventListener("click", (e) => { e.preventDefault(); el("appsMenu").open = false; d.showModal(); });
+  el("raccourcisBtn").addEventListener("click", () => d.showModal());
   document.addEventListener("keydown", (e) => {
     const t = e.target;
     if (e.key !== "?" || e.ctrlKey || e.metaKey || e.altKey || /INPUT|TEXTAREA|SELECT/.test(t.tagName) || document.querySelector("dialog[open]")) return;

@@ -2,6 +2,13 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.19 — 14 novembre 2026
+
+- Nouveauté : un seul bouton « Exporter » regroupe le DXF de la coupe ou de la vue, le relevé gros-œuvre, l'export STEP et la copie de la liste pour Excel. Une pastille verte indique qu'un DXF est prêt.
+- Nouveauté : l'écran d'accueil propose de partir d'une tâche (métrer des façades, relever le gros-œuvre, comparer deux versions, regarder une pièce STEP) : le fichier s'ouvre puis l'outil correspondant se lance.
+- Nouveauté : les raccourcis clavier sont en pied de page (comme dans Check). Nouveaux raccourcis : O pour ouvrir un fichier, E pour le menu Exporter, 1 à 6 pour changer de vue.
+- Nouveauté : l'onglet de liste choisi (fenêtres, murs, façades) est retenu d'une visite à l'autre.
+
 ## 1.18 — 14 novembre 2026
 
 - Nouveauté : la barre d'outils de la vue 3D tient sur une seule ligne. Les réglages de la coupe (curseur, position au dixième de mm) n'apparaissent que lorsqu'une coupe est choisie.
