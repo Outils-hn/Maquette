@@ -491,3 +491,9 @@ footer a:hover, footer button:hover { color: var(--ink); text-decoration: underl
 .tache:hover { border-color: var(--app); background: var(--app-soft); }
 @media (max-width: 520px) { .taches { grid-template-columns: 1fr; } }
 .etat-compte:empty { display: none; }
+
+/* Avant d'ouvrir un fichier : pas de panneaux vides, seulement la carte d'accueil */
+.app.sans-maquette .rail, .app.sans-maquette .tiroir, .app.sans-maquette .fiche, .app.sans-maquette .listes, .app.sans-maquette .sep { display: none; }
+@media (min-width: 901px) {
+  .app.sans-maquette { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "barre" "scene"; }
+}

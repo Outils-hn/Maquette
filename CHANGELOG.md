@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.22 — 15 novembre 2026
+
+- Nouveauté : Maquette est ouverte à tous les comptes validés. Avant d'ouvrir un fichier, l'écran ne montre plus de panneaux vides : seulement la carte pour ouvrir une maquette ou voir un exemple.
+
 ## 1.21 — 14 novembre 2026
 
 - Nouveauté : le lien « Suggestion / bug » du pied de page transmet maintenant la bonne version de l'appli à l'Accueil.
