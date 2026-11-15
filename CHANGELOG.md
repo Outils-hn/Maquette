@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.23 — 15 novembre 2026
+
+- Nouveauté : l'appli garde son aspect (polices) et s'ouvre plus vite même avec un réseau très faible ou sans réseau : si le réseau met plus de 3 secondes à répondre, elle s'ouvre depuis sa copie enregistrée.
+
 ## 1.22 — 15 novembre 2026
 
 - Nouveauté : Maquette est ouverte à tous les comptes validés. Avant d'ouvrir un fichier, l'écran ne montre plus de panneaux vides : seulement la carte pour ouvrir une maquette ou voir un exemple.

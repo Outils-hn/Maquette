@@ -1,6 +1,9 @@
 /* Maquette - style « Epure » de la famille (blanc casse, encre, cartes blanches a fin filet).
    Couleur propre a Maquette : vert olive. Mise en page : outil plein ecran sous le bandeau,
    contenu a gauche, vue 3D au centre, fiche de l'element a droite, listes en bas. */
+/* Polices Geist embarquees (licence OFL, voir fonts/OFL.txt) : l'appli garde son aspect sans reseau. */
+@font-face { font-family: "Geist"; src: url("fonts/Geist-wght.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("fonts/GeistMono-wght.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
 :root {
   --bg: #f3f1ea; --surface: #ffffff; --sunk: #f1efe7; --field: #ffffff;
   --ink: #1d2a22; --muted: #5b6a60; --line: #eeebe0; --line-strong: #d9d5c8;
