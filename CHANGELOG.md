@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.26 — 16 novembre 2026
+
+- Nouveauté : sur l'écran d'ouverture, la phrase « Glissez le fichier ici… » tient sur une seule ligne.
+
 ## 1.25 — 16 novembre 2026
 
 - Nouveauté : l'en-tête de l'écran d'ouverture est simplifié (« Fichiers IFC ou STEP ») et la pastille « Lu sur votre ordinateur » disparaît de la barre : le rappel reste sur l'écran d'accueil et en survolant « Ouvrir ».

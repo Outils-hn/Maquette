@@ -1,8 +1,8 @@
 // Maquette : affichage (vue 3D WebGL, contenu, fiche, listes, mesures, coupes DXF) et bandeau commun.
 // La lecture du fichier et la geometrie sont dans core.js (lancees dans worker.js pour ne pas figer la page).
-import IFC from "./core.js?v=1.25";
+import IFC from "./core.js?v=1.26";
 
-const VERSION = "1.25";
+const VERSION = "1.26";
 // Appli en preparation : reservee au concepteur tant qu'Hugo ne l'ouvre pas a l'equipe (passer a false pour l'ouvrir)
 const RESERVEE_CONCEPTEUR = false;
 
@@ -914,7 +914,7 @@ const RESERVEE_CONCEPTEUR = false;
       fin();
     }, 30);
     let w;
-    try { w = new Worker(new URL("./worker.js?v=1.25", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    try { w = new Worker(new URL("./worker.js?v=1.26", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     let dernier = null, attente = false, tDernier = Date.now();
     // garde-fou : un element dont le calcul bloque plus de 30 s est ignore, et la lecture repart sans lui
     veille = setInterval(() => {
@@ -943,12 +943,12 @@ const RESERVEE_CONCEPTEUR = false;
     const fin = () => { $("#chargement").hidden = true; };
     let res;
     try {
-      const { lireStep } = await import("./step.js?v=1.25");
+      const { lireStep } = await import("./step.js?v=1.26");
       res = await lireStep(f, (t) => { $("#chargementTxt").textContent = `${nom} · ${t}…`; });
     } catch (err) { fin(); toast(`Impossible de lire ce fichier STEP : ${err.message}`); return; }
     $("#chargementTxt").textContent = `${nom} · Conversion de la géométrie…`;
     const direct = () => setTimeout(() => { try { afficherModele(IFC.depuisStep(res, { nom }), nom, performance.now() - t0); } catch (err) { toast(`Impossible de lire ce fichier STEP : ${err.message}`); } fin(); }, 30);
-    let w; try { w = new Worker(new URL("./worker.js?v=1.25", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
+    let w; try { w = new Worker(new URL("./worker.js?v=1.26", import.meta.url), { type: "module" }); } catch (e) { direct(); return; }
     w.onmessage = (e) => { if (e.data.prog != null) return; w.terminate(); fin(); if (e.data.ok) afficherModele(e.data.m, nom, performance.now() - t0); else toast(`Impossible de lire ce fichier STEP : ${e.data.err}`); };
     w.onerror = (e) => { e.preventDefault(); w.terminate(); fin(); toast("Impossible de convertir ce fichier STEP (le calcul en arrière-plan a échoué)."); }; // les tableaux ont ete transferes : pas de reprise directe
     w.postMessage({ step: res, nom }, res.meshes.flatMap((m) => [m.pos.buffer, m.idx.buffer]));
@@ -1041,7 +1041,7 @@ const RESERVEE_CONCEPTEUR = false;
   new MutationObserver(envoyer).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   dimensionner();
-  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.25")).testerBoite(cible) };
+  window.__viewer = { etat, cam, visible, choisir, vue, poserCoupe, basculerMesure, lire, get M() { return M; }, testerBoite: async (cible) => (await import("./step.js?v=1.26")).testerBoite(cible) };
 
 
 // ======================= Bandeau commun de la famille =======================
