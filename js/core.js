@@ -1011,6 +1011,13 @@ const IFC = (() => {
     g(0, "LTYPE"); g(2, "DASHED"); g(70, 0); g(3, "Dashed __ __ __"); g(72, 65); g(73, 2); g(40, "7.5"); g(49, "5.0"); g(49, "-2.5");
     g(0, "LTYPE"); g(2, "CENTER"); g(70, 0); g(3, "Center ____ _ ____ _"); g(72, 65); g(73, 4); g(40, "20.0"); g(49, "12.0"); g(49, "-2.0"); g(49, "4.0"); g(49, "-2.0");
     g(0, "ENDTAB");
+    // Vue active cadree sur le dessin : sans elle AutoCAD ouvre sa vue par defaut (quelques unites) et l'ecran parait vide
+    { const x0 = mn[0], x1 = mx[0], y0 = mn[1] - dyT - 0.1, y1 = mx[1], asp = 1.6, hv = Math.max(y1 - y0, (x1 - x0) / asp) * 1.1;
+      g(0, "TABLE"); g(2, "VPORT"); g(70, 1);
+      g(0, "VPORT"); g(2, "*ACTIVE"); g(70, 0); g(10, 0); g(20, 0); g(11, 1); g(21, 1); g(12, f((x0 + x1) / 2)); g(22, f((y0 + y1) / 2));
+      g(13, 0); g(23, 0); g(14, 10); g(24, 10); g(15, 0); g(25, 0); g(16, 0); g(26, 0); g(36, 1); g(17, 0); g(27, 0); g(37, 0);
+      g(40, f(hv)); g(41, asp); g(42, 50); g(43, 0); g(44, 0); g(50, 0); g(51, 0); g(71, 0); g(72, 100); g(73, 1); g(74, 3); g(75, 0); g(76, 0); g(77, 0); g(78, 0);
+      g(0, "ENDTAB"); }
     g(0, "TABLE"); g(2, "LAYER"); g(70, calques.length);
     for (const c of calques) { g(0, "LAYER"); g(2, `${pre}-${c}`); g(70, 0); g(62, (cfg[c] && cfg[c].couleur) || CALQUES[c] || 7); g(6, (cfg[c] && cfg[c].ltype) || "CONTINUOUS"); }
     g(0, "ENDTAB"); g(0, "ENDSEC");

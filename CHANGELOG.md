@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.29 — 16 novembre 2026
+
+- Correction : les fichiers DXF s'ouvrent déjà cadrés sur le dessin dans AutoCAD (avant, l'écran pouvait paraître vide tant qu'on n'avait pas fait un zoom étendu).
+
 ## 1.28 — 16 novembre 2026
 
 - Nouveauté : petites retouches d'affichage : plus de mot isolé à la fin des phrases et des listes, titres mieux équilibrés.
