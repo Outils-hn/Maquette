@@ -499,3 +499,7 @@ footer a:hover, footer button:hover { color: var(--ink); text-decoration: underl
 @media (min-width: 901px) {
   .app.sans-maquette { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "barre" "scene"; }
 }
+
+/* Coupes de ligne soignees : pas de mot isole en fin de phrase, titres equilibres */
+p, li, dd, figcaption, .hint, .note, .vide { text-wrap: pretty; }
+h1, h2, h3, h4 { text-wrap: balance; }
