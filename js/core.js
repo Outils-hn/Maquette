@@ -1839,10 +1839,22 @@ const IFC = (() => {
     const avert = [], mmT = (x) => String(Math.round(x * 1000)), zT = (z) => (z < -5e-4 ? "−" : z > 5e-4 ? "+" : "±") + Math.abs(z).toFixed(3).replace(".", ",");
     const calqueDeType = (p) => (estMur(p) ? "MUR" : /^IFCCOLUMN/.test(p.ifc) ? "POTEAU" : /^IFCSLAB/.test(p.ifc) ? "DALLE" : /^IFCSTAIR/.test(p.ifc) ? "ESCALIER" : null);
     const bbR = (p) => { let a = [Infinity, Infinity], b = [-Infinity, -Infinity]; for (const x of [p.bb.min[0], p.bb.max[0]]) for (const y of [p.bb.min[1], p.bb.max[1]]) { const q = Rr([x, y]); a = [Math.min(a[0], q[0]), Math.min(a[1], q[1])]; b = [Math.max(b[0], q[0]), Math.max(b[1], q[1])]; } return { min: a, max: b }; };
+    // elements aberrants ecartes : coordonnees invalides, ou tres loin du reste du batiment (point de base Revit/ArchiCAD mal place, objet perdu)
+    // sans cela, un seul element a des kilometres rend le plan minuscule : apercu et DXF paraissent vides
+    const ecartes = new Set(), cand = model.produits.map((p, i) => i).filter((i) => calqueDeType(model.produits[i]));
+    const bbOk = (p) => p.bb && [...p.bb.min, ...p.bb.max].every(Number.isFinite);
+    for (const i of cand) if (!bbOk(model.produits[i])) ecartes.add(i);
+    const bons = cand.filter((i) => !ecartes.has(i));
+    if (bons.length > 2) {
+      const med = (k) => { const v = bons.map((i) => (model.produits[i].bb.min[k] + model.produits[i].bb.max[k]) / 2).sort((a, b) => a - b); return v[v.length >> 1]; };
+      const m0 = med(0), m1 = med(1), m2 = med(2), loin = 300;
+      for (const i of bons) { const b = model.produits[i].bb; if (Math.hypot((b.min[0] + b.max[0]) / 2 - m0, (b.min[1] + b.max[1]) / 2 - m1) > loin || Math.abs((b.min[2] + b.max[2]) / 2 - m2) > loin) ecartes.add(i); }
+    }
+    if (ecartes.size) avert.push(`${ecartes.size} élément${ecartes.size > 1 ? "s" : ""} (mur, poteau, dalle ou escalier) écarté${ecartes.size > 1 ? "s" : ""} du relevé : coordonnées invalides ou à plus de 300 m du reste de la maquette. Vérifiez le point de base du modèle dans Revit / ArchiCAD.`);
     // niveaux utiles : ceux qui contiennent au moins un mur, poteau, dalle ou escalier
-    let etages = model.etages.filter((e) => model.produits.some((p) => p.etage === e.id && calqueDeType(p))).sort((a, b) => a.z - b.z);
+    let etages = model.etages.filter((e) => model.produits.some((p, i) => p.etage === e.id && calqueDeType(p) && !ecartes.has(i))).sort((a, b) => a.z - b.z);
     if (!etages.length) { etages = [{ id: null, nom: "Niveau unique", z: model.bbTout.min[2] }]; avert.push("Aucun niveau (étage) renseigné dans le fichier : un seul plan, coupé à 1 m au-dessus du point le plus bas."); }
-    const de = (e) => model.produits.map((p, i) => i).filter((i) => (e.id == null || model.produits[i].etage === e.id) && calqueDeType(model.produits[i]));
+    const de = (e) => model.produits.map((p, i) => i).filter((i) => !ecartes.has(i) && (e.id == null || model.produits[i].etage === e.id) && calqueDeType(model.produits[i]));
     // bornes communes a tous les plans (repere du batiment)
     let G = { min: [Infinity, Infinity], max: [-Infinity, -Infinity] };
     for (const e of etages) for (const i of de(e)) { const b = bbR(model.produits[i]); G = { min: [Math.min(G.min[0], b.min[0]), Math.min(G.min[1], b.min[1])], max: [Math.max(G.max[0], b.max[0]), Math.max(G.max[1], b.max[1])] }; }
