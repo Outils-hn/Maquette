@@ -568,3 +568,16 @@ test("Controle qualite : cas douteux signales, rien d'invente sur TinyHouse, dou
   assert.ok(c.doublon && c.doublon.items.some((it) => /Double/.test(it.texte)));
   assert.ok(c.plat && c.plat.items.some((it) => /Plat/.test(it.texte)));
 });
+
+test("releve : un element a des kilometres ou invalide est ecarte et signale, le plan reste lisible", () => {
+  const ref = IFC.releve(M);
+  const M2 = { ...M, produits: M.produits.map((p) => ({ ...p })) };
+  const murs = M2.produits.filter((p) => /^IFCWALL/.test(p.ifc));
+  murs[0].bb = { min: murs[0].bb.min.map((v) => v + 250000), max: murs[0].bb.max.map((v) => v + 250000) };
+  murs[1].bb = { min: [NaN, 0, 0], max: [1, 1, 1] };
+  const R = IFC.releve(M2);
+  assert.ok(R.avertissements.some((a) => /^2 éléments .* écartés/.test(a)));
+  const xs = R.segs.flatMap((s) => [s.a[0], s.b[0]]);
+  assert.ok(xs.every(Number.isFinite));
+  assert.ok(Math.max(...xs) < 3 * Math.max(...ref.segs.flatMap((s) => [s.a[0], s.b[0]])));
+});

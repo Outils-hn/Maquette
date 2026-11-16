@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.30 — 16 novembre 2026
+
+- Correction : le relevé gros-œuvre ne devient plus minuscule (aperçu et DXF vides) quand un élément est très éloigné du reste ou a des coordonnées invalides, ce qui arrive avec certains fichiers Revit ou ArchiCAD. Ces éléments sont écartés et signalés dans l'avertissement.
+
 ## 1.29 — 16 novembre 2026
 
 - Correction : les fichiers DXF s'ouvrent déjà cadrés sur le dessin dans AutoCAD (avant, l'écran pouvait paraître vide tant qu'on n'avait pas fait un zoom étendu).
