@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.27 — 16 novembre 2026
+
+- Nouveauté : la date « Dernière mise à jour » de la fenêtre « À propos » est de nouveau à jour.
+
 ## 1.26 — 16 novembre 2026
 
 - Nouveauté : sur l'écran d'ouverture, la phrase « Glissez le fichier ici… » tient sur une seule ligne.
