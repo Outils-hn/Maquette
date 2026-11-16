@@ -28,7 +28,7 @@ const exp = async (page, sel) => { if (!(await page.locator(sel).isVisible())) a
 await step("Ecran d'accueil", async () => {
   const { c, page } = await ouvrir();
   verif("Ecran d'accueil : ouvrir un fichier ou voir un exemple", await page.locator("#accueil").isVisible() && await page.locator("#bExemple").isVisible());
-  verif("Rappel : le fichier n'est envoye nulle part", /rien n'est envoyé/.test(await txt(page, ".prive")));
+  verif("Rappel : le fichier n'est envoye nulle part", /n'est envoyé nulle part/.test(await txt(page, "#accueil")));
   verif("Bandeau : Maquette coche dans le menu des applis", await page.locator('#appsList a[aria-current="page"]').textContent().then((t) => /Maquette/.test(t)));
   verif("Listes vides et copie desactivee avant d'ouvrir un fichier", await page.locator("#bCopier").isDisabled());
   await page.screenshot({ path: `${OUT}/01-accueil.png` });
