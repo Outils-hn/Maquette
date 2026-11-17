@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.32 — 17 novembre 2026
+
+- Nouveauté : à l'accueil, les trois tâches proposées sont alignées sur une seule ligne, de même hauteur (avant : deux cartes, puis une seule orpheline en dessous).
+
 ## 1.31 — 17 novembre 2026
 
 - Retrait : le « Relevé gros-œuvre en DXF » est supprimé (bouton du menu Exporter, tâche de l'accueil, options et code). Il ne donnait pas de résultat exploitable sur les maquettes Revit et ArchiCAD. Les autres exports DXF (coupes, vues, élévations) ne changent pas.

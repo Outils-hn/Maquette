@@ -485,13 +485,13 @@ footer a:hover, footer button:hover { color: var(--ink); text-decoration: underl
 /* accueil : partir d'une tache */
 .accueil-in { max-width: 560px; }
 .accueil-in > p { width: max-content; max-width: calc(100vw - 40px); } /* la phrase d'accueil tient sur une ligne (elle ne passe a la ligne que sur un ecran etroit) */
-.taches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; margin-top: 6px; }
+.taches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; width: 100%; margin-top: 6px; }
 .taches-titre { grid-column: 1 / -1; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 6px 0 0; }
 .tache { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); cursor: pointer; color: var(--ink); }
 .tache b { font-weight: 600; font-size: 13.5px; }
 .tache small { color: var(--muted); font-size: 12px; line-height: 1.35; }
 .tache:hover { border-color: var(--app); background: var(--app-soft); }
-@media (max-width: 520px) { .taches { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .taches { grid-template-columns: 1fr; } }
 .etat-compte:empty { display: none; }
 
 /* Avant d'ouvrir un fichier : pas de panneaux vides, seulement la carte d'accueil */
