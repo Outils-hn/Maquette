@@ -285,7 +285,7 @@ await step("Telephone et theme sombre", async () => {
 
 await step("Ergonomie : menu Exporter, raccourcis en pied de page, accueil par tache", async () => {
   const { c, page } = await ouvrir();
-  verif("Accueil : 4 taches proposees", (await page.locator("[data-tache]").count()) === 4);
+  verif("Accueil : 3 taches proposees", (await page.locator("[data-tache]").count()) === 3);
   verif("Raccourcis : plus dans le selecteur d'applis, bouton en pied de page", (await page.locator("#appsList #raccourcisBtn").count()) === 0 && await page.locator("footer #raccourcisBtn").isVisible());
   await page.click("footer #raccourcisBtn"); await page.waitForTimeout(150);
   verif("Pied de page : la liste des raccourcis s'ouvre (E, O, 1 a 6)", await page.locator("#dRaccourcis[open]").count() === 1 && /Exporter/.test(await txt(page, "#dRaccourcis")));
