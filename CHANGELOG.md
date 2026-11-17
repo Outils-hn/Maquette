@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.31 — 17 novembre 2026
+
+- Retrait : le « Relevé gros-œuvre en DXF » est supprimé (bouton du menu Exporter, tâche de l'accueil, options et code). Il ne donnait pas de résultat exploitable sur les maquettes Revit et ArchiCAD. Les autres exports DXF (coupes, vues, élévations) ne changent pas.
+
 ## 1.30 — 16 novembre 2026
 
 - Correction : le relevé gros-œuvre ne devient plus minuscule (aperçu et DXF vides) quand un élément est très éloigné du reste ou a des coordonnées invalides, ce qui arrive avec certains fichiers Revit ou ArchiCAD. Ces éléments sont écartés et signalés dans l'avertissement.

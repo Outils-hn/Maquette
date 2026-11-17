@@ -538,27 +538,6 @@ test("Orientation : angle libre, volume et surface inchanges", () => {
   assert.ok(Math.abs(aire(S.produits[0]) - S.produits[0].geo.surface) < 1e-5, "surface conservee"); assert.equal(S.produits[0].geo.volume, v0);
 });
 
-// ---------- Releve gros-oeuvre (1.15) ----------
-test("Releve gros-oeuvre : un plan par niveau, axes deduits, niveaux et DXF sans valeur invalide", () => {
-  const R = IFC.releve(M);
-  assert.equal(R.etages.length, 2); assert.deepEqual(R.etages.map((e) => e.nom), ["MainFloor", "LoftLevel"]);
-  assert.ok(R.axes.u.length >= 2 && R.axes.v.length >= 2, "axes dans les deux sens");
-  assert.deepEqual(R.axes.u.map((a) => a.nom), R.axes.u.map((_, k) => String(k + 1))); assert.equal(R.axes.v[0].nom, "A");
-  assert.ok(R.axes.u.every((a, k) => !k || a.pos > R.axes.u[k - 1].pos), "axes ranges");
-  const calques = new Set(R.segs.map((s) => s.calque)); for (const c of ["MUR", "DALLE", "AXES", "COTES", "NIVEAUX"]) assert.ok(calques.has(c), c);
-  assert.ok(R.etages[0].epais > 0 && R.etages[0].top != null);
-  assert.ok(R.textes.some((t) => /MainFloor/.test(t.txt)) && R.textes.some((t) => /ép\. dalle/.test(t.txt)));
-  assert.ok(R.avertissements.some((a) => /déduits/.test(a)), "mention que les axes sont deduits");
-  const d = IFC.dxf(R.segs, "t - A CONTROLER", R.textes, { prefixe: "GO", calques: IFC.CALQUES_RELEVE, cercles: R.cercles });
-  assert.match(d, /GO-MUR/); assert.match(d, /GO-AXES/); assert.match(d, /\nCIRCLE\r/); assert.match(d, /CENTER/); assert.ok(!/NaN|undefined/.test(d));
-});
-test("Releve gros-oeuvre : sans axes ni cotes ni niveaux, il ne reste que les plans ; maquette vide signalee", () => {
-  const R = IFC.releve(M, { axes: false, cotes: false, niveaux: false }), c = new Set(R.segs.map((s) => s.calque));
-  assert.ok(!c.has("AXES") && !c.has("COTES") && !c.has("NIVEAUX") && c.has("MUR")); assert.equal(R.cercles.length, 0);
-  const vide = IFC.releve({ produits: [], etages: [], bbTout: { min: [0, 0, 0], max: [1, 1, 1] } });
-  assert.ok(vide.vide && vide.avertissements.length === 1 && vide.segs.length === 0);
-});
-
 test("Controle qualite : cas douteux signales, rien d'invente sur TinyHouse, doublon et plat detectes", () => {
   const g = IFC.controle(M);
   assert.ok(Array.isArray(g));
@@ -569,15 +548,7 @@ test("Controle qualite : cas douteux signales, rien d'invente sur TinyHouse, dou
   assert.ok(c.plat && c.plat.items.some((it) => /Plat/.test(it.texte)));
 });
 
-test("releve : un element a des kilometres ou invalide est ecarte et signale, le plan reste lisible", () => {
-  const ref = IFC.releve(M);
-  const M2 = { ...M, produits: M.produits.map((p) => ({ ...p })) };
-  const murs = M2.produits.filter((p) => /^IFCWALL/.test(p.ifc));
-  murs[0].bb = { min: murs[0].bb.min.map((v) => v + 250000), max: murs[0].bb.max.map((v) => v + 250000) };
-  murs[1].bb = { min: [NaN, 0, 0], max: [1, 1, 1] };
-  const R = IFC.releve(M2);
-  assert.ok(R.avertissements.some((a) => /^2 éléments .* écartés/.test(a)));
-  const xs = R.segs.flatMap((s) => [s.a[0], s.b[0]]);
-  assert.ok(xs.every(Number.isFinite));
-  assert.ok(Math.max(...xs) < 3 * Math.max(...ref.segs.flatMap((s) => [s.a[0], s.b[0]])));
+test("DXF : une vue active cadree sur le dessin est ecrite (AutoCAD ne s'ouvre pas sur un ecran vide)", () => {
+  const d = IFC.dxf([{ a: [0, 0], b: [40000, 20000], calque: "VISIBLE" }], "t", []);
+  assert.ok(/VPORT\r\n2\r\n\*ACTIVE/.test(d));
 });
