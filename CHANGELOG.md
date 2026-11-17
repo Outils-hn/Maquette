@@ -2,6 +2,10 @@
 
 Chaque version qui change quelque chose de visible pour l'équipe a une puce « Nouveauté : … », en langage courant : c'est la seule phrase affichée sur la page « Nouveautés » de l'Accueil.
 
+## 1.33 — 17 novembre 2026
+
+- Correction : à l'accueil, la carte « Voir une pièce STEP » (ex « Regarder une pièce STEP ») tient sur une ligne, sans que « STEP » passe seul à la ligne.
+
 ## 1.32 — 17 novembre 2026
 
 - Nouveauté : à l'accueil, les trois tâches proposées sont alignées sur une seule ligne, de même hauteur (avant : deux cartes, puis une seule orpheline en dessous).
