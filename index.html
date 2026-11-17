@@ -16,7 +16,7 @@
 <meta name="description" content="Ouvrir les maquettes IFC des architectes et les fichiers STEP : 3D, propriétés, listes, mesures et coupes DXF">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preload" href="fonts/Geist-wght.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=1.31">
+<link rel="stylesheet" href="styles.css?v=1.32">
 </head>
 <body>
 <header class="topbar">
@@ -138,9 +138,9 @@
           </div>
           <div class="taches" role="group" aria-label="Partir de ce que vous voulez faire">
             <p class="taches-titre">Ou partez de ce que vous voulez faire</p>
-            <button type="button" class="tache" data-tache="metre"><b>Métrer des façades</b><small>Surfaces brutes et nettes, ouvertures, tableaux, avec le calcul</small></button>
+            <button type="button" class="tache" data-tache="metre"><b>Métrer des façades</b><small>Surfaces, ouvertures et tableaux, avec le calcul</small></button>
             <button type="button" class="tache" data-tache="compare"><b>Comparer deux versions</b><small>Ce qui a été ajouté, supprimé ou déplacé</small></button>
-            <button type="button" class="tache" data-tache="step"><b>Regarder une pièce STEP</b><small>3D, mesures, coupes et vues DXF</small></button>
+            <button type="button" class="tache" data-tache="step"><b>Regarder une pièce STEP</b><small>3D, mesures, coupes et DXF</small></button>
           </div>
         </div>
       </div>
@@ -170,7 +170,7 @@
   </section>
 </div>
 
-<footer>Maquette v1.31 · <button type="button" id="aboutBtn">À propos</button> · 2026 · <button type="button" id="raccourcisBtn">Raccourcis</button> · <a href="https://outils-hn.github.io/?app=Maquette&amp;v=1.31&amp;page=%2FMaquette%2F" target="_blank" rel="noopener noreferrer">Suggestion / bug</a></footer>
+<footer>Maquette v1.32 · <button type="button" id="aboutBtn">À propos</button> · 2026 · <button type="button" id="raccourcisBtn">Raccourcis</button> · <a href="https://outils-hn.github.io/?app=Maquette&amp;v=1.32&amp;page=%2FMaquette%2F" target="_blank" rel="noopener noreferrer">Suggestion / bug</a></footer>
 
 <dialog id="dDxf" aria-labelledby="dxf-titre">
   <div class="dxf-corps">
@@ -223,7 +223,7 @@
   <div class="apropos">
     <h3 id="da-titre">À propos</h3>
     <div class="about-head"><svg width="40" height="40" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5.5" fill="#4D7C0F"/><g transform="translate(4.56 4.56) scale(.62)" fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"><path d="M12 2.5 21 7.5v9L12 21.5 3 16.5v-9z"/><path d="M12 12 21 7.5M12 12 3 7.5M12 12v9.5"/></g></svg>
-      <div><b>Maquette</b><span class="hint">Version 1.31</span></div></div>
+      <div><b>Maquette</b><span class="hint">Version 1.32</span></div></div>
     <p>Conçu et développé par Hugo N.<br>Imaginé par Virgile G.</p>
     <p class="hint">Ouvrir les maquettes IFC reçues des architectes : voir, interroger, mesurer, lister, couper en DXF et exporter en STEP. Le fichier reste sur votre ordinateur.</p>
     <p class="hint">Dernière mise à jour : 16 novembre 2026</p>
@@ -231,7 +231,7 @@
   </div>
 </dialog>
 <div class="toast" id="toast" role="status"></div>
-<script type="module" src="js/app.js?v=1.31"></script>
+<script type="module" src="js/app.js?v=1.32"></script>
 <script>
   // Hors ligne : la copie de l'appli est gardee sur le poste (voir sw.js)
   if ("serviceWorker" in navigator && location.protocol !== "file:") addEventListener("load", () => {
